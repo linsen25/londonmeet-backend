@@ -1,0 +1,58 @@
+package com.londonmeet.server.repository;
+
+import com.londonmeet.pojo.entity.ActivityRegistration;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
+public interface ActivityRegistrationRepository extends JpaRepository<ActivityRegistration, Long> {
+
+    Optional<ActivityRegistration> findByActivityIdAndUserId(Long activityId, Long userId);
+
+    long countByActivityIdAndStatusIn(Long activityId, Collection<String> statuses);
+
+    List<ActivityRegistration> findByActivityIdInAndStatusIn(
+            Collection<Long> activityIds,
+            Collection<String> statuses
+    );
+
+    List<ActivityRegistration> findByActivityIdIn(Collection<Long> activityIds);
+
+    List<ActivityRegistration> findByActivityIdOrderByCreatedAtAsc(Long activityId);
+
+    long countByUserIdAndStatusIn(Long userId, Collection<String> statuses);
+
+    @Query("""
+            select r
+            from ActivityRegistration r
+            join Activity a on a.id = r.activityId
+            where a.creatorUserId = :creatorUserId
+              and r.status = :status
+            order by r.createdAt asc
+            """)
+    List<ActivityRegistration> findByCreatorUserIdAndStatusOrderByCreatedAtAsc(
+            @Param("creatorUserId") Long creatorUserId,
+            @Param("status") String status
+    );
+
+    @Query("""
+            select count(r) > 0
+            from ActivityRegistration r
+            join Activity a on a.id = r.activityId
+            where r.userId = :userId
+              and r.status in :statuses
+              and a.startAt < :endAt
+              and a.endAt > :startAt
+            """)
+    boolean existsTimeConflict(
+            @Param("userId") Long userId,
+            @Param("startAt") LocalDateTime startAt,
+            @Param("endAt") LocalDateTime endAt,
+            @Param("statuses") Collection<String> statuses
+    );
+}
