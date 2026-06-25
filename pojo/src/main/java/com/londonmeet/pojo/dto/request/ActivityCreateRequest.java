@@ -3,6 +3,7 @@ package com.londonmeet.pojo.dto.request;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -48,4 +49,9 @@ public class ActivityCreateRequest {
 
     @NotBlank(message = "Invite QR code is required.")
     private String inviteQrUrl;
+
+    @NotNull(message = "Invite QR remaining days is required.")
+    @Min(value = 1, message = "Invite QR remaining days must be at least 1.")
+    @Max(value = 7, message = "Invite QR remaining days must be at most 7.")
+    private Integer inviteQrRemainingDays;
 }

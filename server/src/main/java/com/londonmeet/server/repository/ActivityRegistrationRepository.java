@@ -16,6 +16,11 @@ public interface ActivityRegistrationRepository extends JpaRepository<ActivityRe
 
     long countByActivityIdAndStatusIn(Long activityId, Collection<String> statuses);
 
+    List<ActivityRegistration> findByActivityIdAndStatusIn(
+            Long activityId,
+            Collection<String> statuses
+    );
+
     List<ActivityRegistration> findByActivityIdInAndStatusIn(
             Collection<Long> activityIds,
             Collection<String> statuses
@@ -24,6 +29,13 @@ public interface ActivityRegistrationRepository extends JpaRepository<ActivityRe
     List<ActivityRegistration> findByActivityIdIn(Collection<Long> activityIds);
 
     List<ActivityRegistration> findByActivityIdOrderByCreatedAtAsc(Long activityId);
+
+    List<ActivityRegistration> findByUserIdAndActivityIdIn(Long userId, Collection<Long> activityIds);
+
+    Optional<ActivityRegistration> findFirstByActivityIdAndStatusOrderByCreatedAtAsc(
+            Long activityId,
+            String status
+    );
 
     long countByUserIdAndStatusIn(Long userId, Collection<String> statuses);
 
@@ -54,5 +66,17 @@ public interface ActivityRegistrationRepository extends JpaRepository<ActivityRe
             @Param("startAt") LocalDateTime startAt,
             @Param("endAt") LocalDateTime endAt,
             @Param("statuses") Collection<String> statuses
+    );
+
+    @Query("""
+            select r
+            from ActivityRegistration r
+            join Activity a on a.id = r.activityId
+            where r.status = :status
+              and a.startAt <= :now
+            """)
+    List<ActivityRegistration> findStartedPendingRegistrations(
+            @Param("status") String status,
+            @Param("now") LocalDateTime now
     );
 }

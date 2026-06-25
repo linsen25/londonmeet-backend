@@ -8,4 +8,6 @@ public class AdminActionRequest {
     private String reason;
 
     private String status;
+
+    private String password;
 }

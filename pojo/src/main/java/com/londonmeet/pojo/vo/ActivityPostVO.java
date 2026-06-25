@@ -36,4 +36,6 @@ public class ActivityPostVO {
     private Long endAt;
 
     private String progressGif;
+
+    private String registrationStatus;
 }

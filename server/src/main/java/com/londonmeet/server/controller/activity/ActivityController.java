@@ -7,6 +7,9 @@ import com.londonmeet.pojo.dto.request.ActivityLikeRequest;
 import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
+import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
 import com.londonmeet.pojo.vo.ActivityLikeVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
@@ -53,6 +56,14 @@ public class ActivityController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(activityService.listMyOngoingActivities(request, loginUser));
+    }
+
+    @GetMapping("/me/created")
+    public ApiResponse<ActivityPageVO> listMyCreatedActivities(
+            ActivityQueryRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.listMyCreatedActivities(request, loginUser));
     }
 
     @GetMapping("/me/favorites")
@@ -102,6 +113,24 @@ public class ActivityController {
         return ApiResponse.success(activityService.getActivityDetail(id, loginUser));
     }
 
+    @PutMapping("/{id}")
+    public ApiResponse<ActivityDetailVO> updateActivity(
+            @PathVariable Long id,
+            @Valid @RequestBody ActivityUpdateRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.updateActivity(id, request, loginUser));
+    }
+
+    @PutMapping("/{id}/invite-qr")
+    public ApiResponse<ActivityDetailVO> updateActivityQr(
+            @PathVariable Long id,
+            @Valid @RequestBody ActivityQrUpdateRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.updateActivityQr(id, request, loginUser));
+    }
+
     @PostMapping("/{id}/apply")
     public ApiResponse<ActivityRegistrationVO> applyActivity(
             @PathVariable Long id,
@@ -117,6 +146,15 @@ public class ActivityController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(activityService.joinGroup(id, loginUser));
+    }
+
+    @PostMapping("/{id}/cancel-registration")
+    public ApiResponse<ActivityRegistrationVO> cancelRegistration(
+            @PathVariable Long id,
+            @Valid @RequestBody ActivityCancelRegistrationRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.cancelRegistration(id, request, loginUser));
     }
 
     @PostMapping("/{id}/like")

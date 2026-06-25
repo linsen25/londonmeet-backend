@@ -47,6 +47,9 @@ public class Activity {
     @Column(name = "start_at", nullable = false)
     private LocalDateTime startAt;
 
+    @Column(name = "original_start_at")
+    private LocalDateTime originalStartAt;
+
     @Column(name = "end_at", nullable = false)
     private LocalDateTime endAt;
 
@@ -74,6 +77,15 @@ public class Activity {
     @Column(name = "invite_qr_url", length = 500)
     private String inviteQrUrl;
 
+    @Column(name = "edit_count", nullable = false)
+    private Integer editCount;
+
+    @Column(name = "qr_expires_at")
+    private LocalDateTime qrExpiresAt;
+
+    @Column(name = "qr_reminder_sent_at")
+    private LocalDateTime qrReminderSentAt;
+
     @Column(name = "progress_gif", length = 500)
     private String progressGif;
 
@@ -100,6 +112,12 @@ public class Activity {
         }
         if (status == null) {
             status = "PUBLISHED";
+        }
+        if (originalStartAt == null) {
+            originalStartAt = startAt;
+        }
+        if (editCount == null) {
+            editCount = 0;
         }
         if (createdAt == null) {
             createdAt = now;

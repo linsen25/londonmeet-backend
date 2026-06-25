@@ -27,6 +27,49 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             Pageable pageable
     );
 
+    Page<Activity> findByCreatorUserIdAndStatusAndEndAtAfter(
+            Long creatorUserId,
+            String status,
+            LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Query("""
+            select count(a) > 0
+            from Activity a
+            where a.creatorUserId = :creatorUserId
+              and a.status = :status
+              and (:excludeId is null or a.id <> :excludeId)
+              and a.startAt < :endAt
+              and a.endAt > :startAt
+            """)
+    boolean existsCreatorTimeConflict(
+            @Param("creatorUserId") Long creatorUserId,
+            @Param("status") String status,
+            @Param("startAt") LocalDateTime startAt,
+            @Param("endAt") LocalDateTime endAt,
+            @Param("excludeId") Long excludeId
+    );
+
+    java.util.List<Activity> findByStatusAndEndAtAfterAndQrExpiresAtBetween(
+            String status,
+            LocalDateTime now,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    java.util.List<Activity> findByStatusAndEndAtBetween(
+            String status,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    java.util.List<Activity> findByStatusAndStartAtBetween(
+            String status,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
     @Query("""
             select a
             from Activity a
@@ -100,13 +143,12 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
     @Query("""
             select distinct a
             from Activity a
-            left join ActivityRegistration r on r.activityId = a.id
+            join ActivityRegistration r on r.activityId = a.id
             where a.status = :status
               and a.endAt > :now
-              and (
-                    a.creatorUserId = :userId
-                    or (r.userId = :userId and r.status in :registrationStatuses)
-                  )
+              and a.creatorUserId <> :userId
+              and r.userId = :userId
+              and r.status in :registrationStatuses
             """)
     Page<Activity> findRelatedOngoingActivities(
             @Param("userId") Long userId,

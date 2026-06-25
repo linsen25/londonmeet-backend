@@ -9,12 +9,15 @@ import com.londonmeet.common.utils.JwtUtil;
 import com.londonmeet.pojo.dto.request.AdminLoginRequest;
 import com.londonmeet.pojo.dto.request.AdminActionRequest;
 import com.londonmeet.pojo.dto.request.AdminActivityTagsRequest;
+import com.londonmeet.pojo.dto.request.AdminActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.AdminTagRequest;
 import com.londonmeet.pojo.dto.request.AdminNotificationRequest;
+import com.londonmeet.pojo.dto.request.ReviewScoreRequest;
 import com.londonmeet.pojo.entity.AdminAuditLog;
 import com.londonmeet.pojo.entity.Activity;
 import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityReport;
+import com.londonmeet.pojo.entity.ActivityReview;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.entity.Tag;
 import com.londonmeet.pojo.entity.UserFeedback;
@@ -22,6 +25,7 @@ import com.londonmeet.pojo.entity.Notification;
 import com.londonmeet.pojo.vo.AdminActivityItemVO;
 import com.londonmeet.pojo.vo.AdminActivityDetailVO;
 import com.londonmeet.pojo.vo.AdminActivityPageVO;
+import com.londonmeet.pojo.vo.AdminAuditLogVO;
 import com.londonmeet.pojo.vo.AdminParticipantVO;
 import com.londonmeet.pojo.vo.AdminReportItemVO;
 import com.londonmeet.pojo.vo.AdminReportPageVO;
@@ -33,11 +37,15 @@ import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackItemVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
+import com.londonmeet.pojo.vo.AdminReviewItemVO;
+import com.londonmeet.pojo.vo.AdminReviewPageVO;
 import com.londonmeet.server.config.AdminProperties;
+import com.londonmeet.server.config.GoogleMapsProperties;
 import com.londonmeet.server.config.UploadProperties;
 import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.AdminAuditLogRepository;
 import com.londonmeet.server.repository.ActivityReportRepository;
+import com.londonmeet.server.repository.ActivityReviewRepository;
 import com.londonmeet.server.repository.ActivityRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.repository.TagRepository;
@@ -55,12 +63,16 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -81,12 +93,14 @@ public class AdminServiceImpl implements AdminService {
     );
 
     private final AdminProperties adminProperties;
+    private final GoogleMapsProperties googleMapsProperties;
     private final JwtProperties jwtProperties;
     private final UploadProperties uploadProperties;
     private final UserRepository userRepository;
     private final ActivityRepository activityRepository;
     private final ActivityRegistrationRepository activityRegistrationRepository;
     private final ActivityReportRepository activityReportRepository;
+    private final ActivityReviewRepository activityReviewRepository;
     private final AdminAuditLogRepository adminAuditLogRepository;
     private final TagRepository tagRepository;
     private final UserFeedbackRepository userFeedbackRepository;
@@ -397,9 +411,11 @@ public class AdminServiceImpl implements AdminService {
             LoginUser loginUser
     ) {
         requireAdmin(loginUser);
+        requireAdminPassword(request == null ? null : request.getPassword());
         Activity activity = activityRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("活动不存在"));
         String reason = requireReason(request);
+        Map<String, Object> before = activityAuditState(activity);
 
         switch (action) {
             case "hide" -> activity.setStatus("HIDDEN");
@@ -412,8 +428,98 @@ public class AdminServiceImpl implements AdminService {
             default -> throw new BusinessException("不支持的活动操作");
         }
         activityRepository.save(activity);
-        saveAudit(loginUser.userId(), "ACTIVITY_" + action.toUpperCase().replace('-', '_'),
-                "ACTIVITY", id, reason);
+        notifyAdminActivityAction(
+                activity,
+                "管理员已" + adminActivityActionLabel(action),
+                "「" + activity.getTitle() + "」已由管理员" + adminActivityActionLabel(action)
+                        + "。处理说明：" + reason
+        );
+        saveAudit(
+                loginUser.userId(),
+                "ACTIVITY_" + action.toUpperCase().replace('-', '_'),
+                "ACTIVITY",
+                id,
+                reason,
+                before,
+                activityAuditState(activity)
+        );
+        return buildActivityDetail(activity);
+    }
+
+    @Override
+    @Transactional
+    public AdminActivityDetailVO updateActivity(
+            Long id,
+            AdminActivityUpdateRequest request,
+            LoginUser loginUser
+    ) {
+        requireAdmin(loginUser);
+        if (request == null) {
+            throw new BusinessException("请填写活动修改内容");
+        }
+        requireAdminPassword(request.getPassword());
+
+        String reason = request.getReason() == null ? "" : request.getReason().trim();
+        if (!StringUtils.hasText(reason)) {
+            throw new BusinessException("请填写修改原因");
+        }
+        if (reason.length() > 500) {
+            throw new BusinessException("修改原因最多 500 字");
+        }
+
+        String status = request.getStatus() == null ? "" : request.getStatus().trim().toUpperCase();
+        if (!Set.of("PUBLISHED", "HIDDEN", "CANCELLED").contains(status)) {
+            throw new BusinessException("活动状态无效");
+        }
+
+        LocalDateTime startAt = fromEpochMillis(request.getStartAt());
+        LocalDateTime endAt = fromEpochMillis(request.getEndAt());
+        if (startAt == null || endAt == null) {
+            throw new BusinessException("请填写活动开始和结束时间");
+        }
+        if (!endAt.isAfter(startAt)) {
+            throw new BusinessException("活动结束时间必须晚于开始时间");
+        }
+
+        String locationText = request.getLocationText() == null
+                ? ""
+                : request.getLocationText().trim();
+        if (!StringUtils.hasText(locationText)) {
+            throw new BusinessException("请填写活动地址");
+        }
+        if (locationText.length() > 500) {
+            throw new BusinessException("活动地址最多 500 字");
+        }
+
+        Activity activity = activityRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("活动不存在"));
+        Map<String, Object> before = activityAuditState(activity);
+
+        boolean locationChanged = !locationText.equals(activity.getLocationText());
+        activity.setStatus(status);
+        activity.setStartAt(startAt);
+        activity.setEndAt(endAt);
+        activity.setLocationText(locationText);
+        if (locationChanged) {
+            activity.setMapImageUrl(buildMapImageUrl(locationText));
+        }
+        activityRepository.save(activity);
+        notifyAdminActivityAction(
+                activity,
+                "活动信息已由管理员调整",
+                "「" + activity.getTitle() + "」的状态、时间或地点已由管理员调整。处理说明：" + reason
+        );
+
+        Map<String, Object> after = activityAuditState(activity);
+        saveAudit(
+                loginUser.userId(),
+                "ACTIVITY_UPDATE",
+                "ACTIVITY",
+                id,
+                reason,
+                before,
+                after
+        );
         return buildActivityDetail(activity);
     }
 
@@ -482,6 +588,15 @@ public class AdminServiceImpl implements AdminService {
         report.setHandledBy(loginUser.userId());
         report.setHandledAt(LocalDateTime.now());
         activityReportRepository.save(report);
+        notificationService.createNotification(
+                report.getReporterUserId(),
+                Notification.TYPE_REPORT_RESULT,
+                "举报处理结果",
+                ("RESOLVED".equals(status) ? "你提交的举报已核实处理。" : "你提交的举报经核查未成立。")
+                        + "处理说明：" + reason,
+                Notification.RELATED_ACTIVITY,
+                report.getActivityId()
+        );
         saveAudit(loginUser.userId(), "REPORT_" + status, "REPORT", id, reason);
     }
 
@@ -621,6 +736,11 @@ public class AdminServiceImpl implements AdminService {
         activity.setTagIdsJson(writeJson(tagIds));
         activity.setTagsJson(writeJson(names));
         activityRepository.save(activity);
+        notifyAdminActivityAction(
+                activity,
+                "活动标签已由管理员调整",
+                "「" + activity.getTitle() + "」的活动标签已由管理员调整。"
+        );
         saveAudit(loginUser.userId(), "ACTIVITY_TAGS_UPDATE", "ACTIVITY", id,
                 String.join("、", names));
         return buildActivityDetail(activity);
@@ -675,7 +795,149 @@ public class AdminServiceImpl implements AdminService {
         feedback.setHandledBy(loginUser.userId());
         feedback.setHandledAt(LocalDateTime.now());
         userFeedbackRepository.save(feedback);
+        notificationService.createNotification(
+                feedback.getUserId(),
+                Notification.TYPE_FEEDBACK_RESULT,
+                "意见处理结果",
+                ("RESOLVED".equals(status) ? "你提交的意见已处理。" : "你提交的意见暂未采纳。")
+                        + "处理说明：" + note,
+                null,
+                feedback.getId()
+        );
         saveAudit(loginUser.userId(), "FEEDBACK_" + status, "FEEDBACK", id, note);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminReviewPageVO listReviews(
+            String targetType,
+            String status,
+            String keyword,
+            Integer page,
+            Integer pageSize,
+            LoginUser loginUser
+    ) {
+        requireAdmin(loginUser);
+        int p = normalizePage(page);
+        int size = normalizePageSize(pageSize);
+        String normalizedType = StringUtils.hasText(targetType)
+                && Set.of(ActivityReview.TARGET_ACTIVITY, ActivityReview.TARGET_MEMBER)
+                .contains(targetType.trim().toLowerCase())
+                ? targetType.trim().toLowerCase()
+                : null;
+        String normalizedStatus = StringUtils.hasText(status)
+                && Set.of(ActivityReview.STATUS_NORMAL, ActivityReview.STATUS_EXCLUDED)
+                .contains(status.trim().toUpperCase())
+                ? status.trim().toUpperCase()
+                : null;
+        String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+
+        Page<ActivityReview> result = activityReviewRepository.findAdminReviews(
+                normalizedType,
+                normalizedStatus,
+                normalizedKeyword,
+                PageRequest.of(p - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"))
+        );
+        List<ActivityReview> reviews = result.getContent();
+        Set<Long> userIds = reviews.stream()
+                .flatMap(review -> java.util.stream.Stream.of(
+                        review.getReviewerUserId(),
+                        ActivityReview.TARGET_MEMBER.equals(review.getTargetType())
+                                ? review.getTargetId()
+                                : null,
+                        review.getHandledBy()
+                ))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, User> users = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Map<Long, Activity> activities = activityRepository.findAllById(
+                        reviews.stream().map(ActivityReview::getActivityId).collect(Collectors.toSet())
+                ).stream()
+                .collect(Collectors.toMap(Activity::getId, Function.identity()));
+
+        List<AdminReviewItemVO> items = reviews.stream().map(review -> {
+            Activity activity = activities.get(review.getActivityId());
+            User reviewer = users.get(review.getReviewerUserId());
+            User target = ActivityReview.TARGET_MEMBER.equals(review.getTargetType())
+                    ? users.get(review.getTargetId())
+                    : null;
+            User handler = users.get(review.getHandledBy());
+            return AdminReviewItemVO.builder()
+                    .id(review.getId())
+                    .targetType(review.getTargetType())
+                    .activityId(review.getActivityId())
+                    .activityTitle(activity == null ? "活动已删除" : activity.getTitle())
+                    .reviewerUserId(review.getReviewerUserId())
+                    .reviewerName(resolveName(reviewer))
+                    .targetId(review.getTargetId())
+                    .targetName(ActivityReview.TARGET_ACTIVITY.equals(review.getTargetType())
+                            ? (activity == null ? "活动已删除" : activity.getTitle())
+                            : resolveName(target))
+                    .overallScore(review.getOverallScore().doubleValue())
+                    .scores(parseReviewScores(review.getScoresJson()))
+                    .status(review.getStatus())
+                    .adminNote(review.getAdminNote())
+                    .handledBy(review.getHandledBy())
+                    .handledByName(handler == null ? null : resolveName(handler))
+                    .createdAt(toEpochMillis(review.getCreatedAt()))
+                    .updatedAt(toEpochMillis(review.getUpdatedAt()))
+                    .handledAt(toEpochMillis(review.getHandledAt()))
+                    .build();
+        }).toList();
+
+        return AdminReviewPageVO.builder()
+                .list(items)
+                .page(p)
+                .pageSize(size)
+                .total(result.getTotalElements())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void updateReviewStatus(Long id, AdminActionRequest request, LoginUser loginUser) {
+        requireAdmin(loginUser);
+        requireAdminPassword(request == null ? null : request.getPassword());
+        String reason = requireReason(request);
+        String status = request == null || request.getStatus() == null
+                ? ""
+                : request.getStatus().trim().toUpperCase();
+        if (!Set.of(ActivityReview.STATUS_NORMAL, ActivityReview.STATUS_EXCLUDED).contains(status)) {
+            throw new BusinessException("评价治理状态无效");
+        }
+
+        ActivityReview review = activityReviewRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("评价不存在"));
+        Map<String, Object> before = reviewAuditState(review);
+        review.setStatus(status);
+        review.setAdminNote(reason);
+        review.setHandledBy(loginUser.userId());
+        review.setHandledAt(LocalDateTime.now());
+        activityReviewRepository.save(review);
+        notificationService.createNotification(
+                review.getReviewerUserId(),
+                Notification.TYPE_REVIEW_MODERATED,
+                ActivityReview.STATUS_EXCLUDED.equals(status) ? "评价已被隐藏" : "评价已恢复",
+                (ActivityReview.STATUS_EXCLUDED.equals(status)
+                        ? "你提交的一条评价已被管理员隐藏。"
+                        : "你提交的一条评价已由管理员恢复。")
+                        + "处理说明：" + reason,
+                Notification.RELATED_ACTIVITY,
+                review.getActivityId()
+        );
+
+        saveAudit(
+                loginUser.userId(),
+                ActivityReview.STATUS_EXCLUDED.equals(status)
+                        ? "REVIEW_EXCLUDE"
+                        : "REVIEW_RESTORE",
+                "REVIEW",
+                id,
+                reason,
+                before,
+                reviewAuditState(review)
+        );
     }
 
     @Override
@@ -702,6 +964,34 @@ public class AdminServiceImpl implements AdminService {
         saveAudit(loginUser.userId(), "USER_NOTIFICATION_SEND", "USER", userId, title);
     }
 
+    private void notifyAdminActivityAction(Activity activity, String title, String content) {
+        Set<Long> userIds = new java.util.LinkedHashSet<>();
+        if (activity.getCreatorUserId() != null) {
+            userIds.add(activity.getCreatorUserId());
+        }
+        activityRegistrationRepository.findByActivityIdAndStatusIn(activity.getId(), JOINED_STATUSES)
+                .stream()
+                .map(ActivityRegistration::getUserId)
+                .forEach(userIds::add);
+        userIds.forEach(userId -> notificationService.createNotification(
+                userId,
+                Notification.TYPE_ADMIN_ACTIVITY_ACTION,
+                title,
+                content,
+                Notification.RELATED_ACTIVITY,
+                activity.getId()
+        ));
+    }
+
+    private String adminActivityActionLabel(String action) {
+        return switch (action) {
+            case "hide" -> "隐藏活动";
+            case "restore" -> "恢复活动";
+            case "force-end" -> "结束活动";
+            default -> "处理活动";
+        };
+    }
+
     private AdminActivityDetailVO buildActivityDetail(Activity activity) {
         List<ActivityRegistration> registrations =
                 activityRegistrationRepository.findByActivityIdOrderByCreatedAtAsc(activity.getId());
@@ -715,6 +1005,13 @@ public class AdminServiceImpl implements AdminService {
         AdminAuditLog latestAudit = adminAuditLogRepository
                 .findFirstByTargetTypeAndTargetIdOrderByCreatedAtDesc("ACTIVITY", activity.getId())
                 .orElse(null);
+        List<AdminAuditLog> auditLogs = adminAuditLogRepository
+                .findByTargetTypeAndTargetIdOrderByCreatedAtDesc("ACTIVITY", activity.getId());
+        Set<Long> adminIds = auditLogs.stream()
+                .map(AdminAuditLog::getAdminUserId)
+                .collect(Collectors.toSet());
+        Map<Long, User> admins = userRepository.findAllById(adminIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
         return AdminActivityDetailVO.builder()
                 .id(activity.getId()).title(activity.getTitle()).content(activity.getContent())
                 .creatorUserId(activity.getCreatorUserId()).authorName(activity.getAuthorName())
@@ -730,6 +1027,16 @@ public class AdminServiceImpl implements AdminService {
                 .governanceAction(latestAudit == null ? null : latestAudit.getActionType())
                 .governanceReason(latestAudit == null ? null : latestAudit.getReason())
                 .governedAt(latestAudit == null ? null : toEpochMillis(latestAudit.getCreatedAt()))
+                .auditLogs(auditLogs.stream().map(audit -> AdminAuditLogVO.builder()
+                        .id(audit.getId())
+                        .adminUserId(audit.getAdminUserId())
+                        .adminName(resolveName(admins.get(audit.getAdminUserId())))
+                        .actionType(audit.getActionType())
+                        .reason(audit.getReason())
+                        .beforeState(parseObjectMap(audit.getBeforeJson()))
+                        .afterState(parseObjectMap(audit.getAfterJson()))
+                        .createdAt(toEpochMillis(audit.getCreatedAt()))
+                        .build()).toList())
                 .participants(registrations.stream().map(registration -> {
                     User user = users.get(registration.getUserId());
                     return AdminParticipantVO.builder()
@@ -843,9 +1150,24 @@ public class AdminServiceImpl implements AdminService {
     }
 
     private void saveAudit(Long adminId, String action, String targetType, Long targetId, String reason) {
+        saveAudit(adminId, action, targetType, targetId, reason, null, null);
+    }
+
+    private void saveAudit(
+            Long adminId,
+            String action,
+            String targetType,
+            Long targetId,
+            String reason,
+            Map<String, Object> before,
+            Map<String, Object> after
+    ) {
         adminAuditLogRepository.save(AdminAuditLog.builder()
                 .adminUserId(adminId).actionType(action).targetType(targetType)
-                .targetId(targetId).reason(reason).build());
+                .targetId(targetId).reason(reason)
+                .beforeJson(toJsonOrNull(before))
+                .afterJson(toJsonOrNull(after))
+                .build());
     }
 
     private void requireAdmin(LoginUser loginUser) {
@@ -854,9 +1176,84 @@ public class AdminServiceImpl implements AdminService {
         }
     }
 
+    private void requireAdminPassword(String password) {
+        if (!StringUtils.hasText(password)
+                || !adminProperties.getPassword().equals(password)) {
+            throw new BusinessException("管理员密码错误");
+        }
+    }
+
+    private Map<String, Object> activityAuditState(Activity activity) {
+        Map<String, Object> state = new HashMap<>();
+        state.put("status", activity.getStatus());
+        state.put("startAt", toEpochMillis(activity.getStartAt()));
+        state.put("endAt", toEpochMillis(activity.getEndAt()));
+        state.put("locationText", activity.getLocationText());
+        return state;
+    }
+
+    private Map<String, Object> reviewAuditState(ActivityReview review) {
+        Map<String, Object> state = new HashMap<>();
+        state.put("status", review.getStatus());
+        state.put("overallScore", review.getOverallScore());
+        state.put("adminNote", review.getAdminNote());
+        return state;
+    }
+
+    private List<ReviewScoreRequest> parseReviewScores(String value) {
+        if (!StringUtils.hasText(value)) return List.of();
+        try {
+            return objectMapper.readValue(
+                    value,
+                    new TypeReference<List<ReviewScoreRequest>>() {}
+            );
+        } catch (Exception exception) {
+            return List.of();
+        }
+    }
+
+    private String buildMapImageUrl(String address) {
+        if (!StringUtils.hasText(googleMapsProperties.getApiKey())) {
+            return null;
+        }
+        String imageUrl = UriComponentsBuilder
+                .fromUriString("https://maps.googleapis.com/maps/api/staticmap")
+                .queryParam("center", address)
+                .queryParam("zoom", 15)
+                .queryParam("size", "800x360")
+                .queryParam("scale", 2)
+                .queryParam("maptype", "roadmap")
+                .queryParam("markers", "color:red|" + address)
+                .queryParam("key", googleMapsProperties.getApiKey())
+                .toUriString();
+        return "/api/map/image-proxy?url="
+                + UriUtils.encodeQueryParam(imageUrl, StandardCharsets.UTF_8);
+    }
+
+    private String toJsonOrNull(Map<String, Object> value) {
+        if (value == null) return null;
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new BusinessException("记录管理操作失败");
+        }
+    }
+
+    private Map<String, Object> parseObjectMap(String value) {
+        if (!StringUtils.hasText(value)) return Map.of();
+        try {
+            return objectMapper.readValue(value, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception exception) {
+            return Map.of();
+        }
+    }
+
     private String resolveStatus(Activity activity, LocalDateTime now) {
         if ("HIDDEN".equals(activity.getStatus())) {
             return "hidden";
+        }
+        if ("CANCELLED".equals(activity.getStatus())) {
+            return "cancelled";
         }
         if (!activity.getStartAt().isAfter(now) && activity.getEndAt().isAfter(now)) {
             return "ongoing";
@@ -872,6 +1269,14 @@ public class AdminServiceImpl implements AdminService {
             return null;
         }
         return value.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    private LocalDateTime fromEpochMillis(Long value) {
+        if (value == null || value <= 0) return null;
+        return LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(value),
+                ZoneId.systemDefault()
+        );
     }
 
     private long scalar(String sql, Object... arguments) {

@@ -11,6 +11,9 @@ import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
+import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.entity.Activity;
 import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityFavorite;
@@ -34,6 +37,7 @@ import com.londonmeet.server.repository.ActivityReviewRepository;
 import com.londonmeet.server.repository.ActivityReportRepository;
 import com.londonmeet.server.repository.TagRepository;
 import com.londonmeet.server.repository.UserRepository;
+import com.londonmeet.server.repository.NotificationRepository;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.ActivityService;
 import com.londonmeet.server.service.NotificationService;
@@ -73,6 +77,13 @@ public class ActivityServiceImpl implements ActivityService {
             ActivityRegistration.STATUS_APPROVED,
             ActivityRegistration.STATUS_JOINED_GROUP
     );
+    private static final Map<String, String> CANCELLATION_REASON_LABELS = Map.of(
+            "time_conflict", "时间冲突",
+            "temporary_issue", "临时有事",
+            "activity_changed", "活动信息变更",
+            "location_inconvenient", "地点不便",
+            "other", "其他"
+    );
     private final ActivityRepository activityRepository;
     private final ActivityFavoriteRepository activityFavoriteRepository;
     private final ActivityRegistrationRepository activityRegistrationRepository;
@@ -81,6 +92,7 @@ public class ActivityServiceImpl implements ActivityService {
     private final TagRepository tagRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final NotificationRepository notificationRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -95,8 +107,19 @@ public class ActivityServiceImpl implements ActivityService {
 
         LocalDateTime startAt = toLocalDateTime(request.getStartAt());
         LocalDateTime endAt = toLocalDateTime(request.getEndAt());
+        LocalDateTime now = LocalDateTime.now();
+        if (startAt.isBefore(now.plusHours(12))) {
+            throw new BusinessException("活动开始时间必须至少晚于当前时间12小时。");
+        }
+        if (startAt.isAfter(now.plusDays(30))) {
+            throw new BusinessException("活动开始时间最多可设置在30天内。");
+        }
         if (!endAt.isAfter(startAt)) {
             throw new BusinessException("Activity end time must be after start time.");
+        }
+        if (activityRepository.existsCreatorTimeConflict(
+                creator.getId(), STATUS_PUBLISHED, startAt, endAt, null)) {
+            throw new BusinessException("该时间与你发起的其他活动冲突。");
         }
 
         List<String> imageUrls = sanitizeList(request.getImageUrls(), 4);
@@ -128,6 +151,7 @@ public class ActivityServiceImpl implements ActivityService {
                 .avatarUrl(creator.getAvatarUrl())
                 .coverUrl(coverUrl)
                 .startAt(startAt)
+                .originalStartAt(startAt)
                 .endAt(endAt)
                 .tagId(tagId)
                 .tagIdsJson(toJson(tagIds))
@@ -137,10 +161,22 @@ public class ActivityServiceImpl implements ActivityService {
                 .mapImageUrl(trimToNull(request.getMapImageUrl()))
                 .imageUrlsJson(toJson(imageUrls))
                 .inviteQrUrl(trimToNull(request.getInviteQrUrl()))
+                .editCount(0)
+                .qrExpiresAt(LocalDateTime.now().plusDays(request.getInviteQrRemainingDays()))
                 .status(STATUS_PUBLISHED)
                 .build();
 
-        return toPostVO(activityRepository.save(activity), false);
+        Activity saved = activityRepository.save(activity);
+        notificationService.createNotification(
+                creator.getId(),
+                Notification.TYPE_ACTIVITY_PUBLISHED,
+                "活动已成功刊登",
+                "你的活动「" + saved.getTitle()
+                        + "」已经成功刊登。你有一次修改活动内容的机会，但必须在原开始时间前至少12小时完成修改。",
+                Notification.RELATED_ACTIVITY,
+                saved.getId()
+        );
+        return toPostVO(saved, false);
     }
 
     @Override
@@ -227,6 +263,26 @@ public class ActivityServiceImpl implements ActivityService {
                 PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.ASC, "endAt"))
         );
 
+        return ActivityPageVO.builder()
+                .list(toPostVOs(result.getContent(), userId))
+                .page(page)
+                .pageSize(pageSize)
+                .hasMore(result.hasNext())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActivityPageVO listMyCreatedActivities(ActivityQueryRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        int page = normalizePage(request.getPage());
+        int pageSize = normalizePageSize(request.getPageSize());
+        Page<Activity> result = activityRepository.findByCreatorUserIdAndStatusAndEndAtAfter(
+                userId,
+                STATUS_PUBLISHED,
+                LocalDateTime.now(),
+                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.ASC, "startAt"))
+        );
         return ActivityPageVO.builder()
                 .list(toPostVOs(result.getContent(), userId))
                 .page(page)
@@ -334,8 +390,11 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     private Map<String, Double> resolveMemberRatings(Long userId) {
-        List<ActivityReview> reviews = activityReviewRepository.findByTargetTypeAndTargetId(
-                ActivityReview.TARGET_MEMBER, userId);
+        List<ActivityReview> reviews = activityReviewRepository.findByTargetTypeAndTargetIdAndStatus(
+                ActivityReview.TARGET_MEMBER,
+                userId,
+                ActivityReview.STATUS_NORMAL
+        );
         if (reviews.isEmpty()) {
             return Map.of();
         }
@@ -390,6 +449,112 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     @Transactional
+    public ActivityDetailVO updateActivity(
+            Long id,
+            ActivityUpdateRequest request,
+            LoginUser loginUser
+    ) {
+        Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findLockedById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        requireCreator(activity, userId);
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
+            throw new BusinessException("该活动不可修改。");
+        }
+        if (activity.getEditCount() != null && activity.getEditCount() >= 1) {
+            throw new BusinessException("该活动已经使用过一次修改机会。");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime originalStart = activity.getOriginalStartAt() == null
+                ? activity.getStartAt()
+                : activity.getOriginalStartAt();
+        if (!now.isBefore(originalStart.minusHours(12))) {
+            throw new BusinessException("仅可在原开始时间前12小时修改活动。");
+        }
+
+        LocalDateTime newStart = toLocalDateTime(request.getStartAt());
+        LocalDateTime newEnd = toLocalDateTime(request.getEndAt());
+        if (newStart.isBefore(activity.getStartAt())) {
+            throw new BusinessException("活动开始时间只能往后延，不能提前。");
+        }
+        if (!newEnd.isAfter(newStart)) {
+            throw new BusinessException("活动结束时间必须晚于开始时间。");
+        }
+        if (activityRepository.existsCreatorTimeConflict(
+                userId, STATUS_PUBLISHED, newStart, newEnd, activity.getId())) {
+            throw new BusinessException("修改后的时间与你发起的其他活动冲突。");
+        }
+
+        int approvedCount = capacityCount(activity.getId());
+        if (request.getRecruitCount() < approvedCount) {
+            throw new BusinessException("招募人数不能少于已通过人数 " + approvedCount + "。");
+        }
+
+        List<String> imageUrls = sanitizeList(request.getImageUrls(), 4);
+        String coverUrl = firstText(imageUrls);
+        if (!StringUtils.hasText(coverUrl)) {
+            throw new BusinessException("至少需要一张活动图片。");
+        }
+        List<Long> tagIds = sanitizeTagIds(request.getTagIds(), 4);
+        if (tagIds.isEmpty()) {
+            throw new BusinessException("至少选择一个活动标签。");
+        }
+
+        activity.setContent(request.getContent().trim());
+        activity.setTagId(tagIds.get(0));
+        activity.setTagIdsJson(toJson(tagIds));
+        activity.setTagsJson(toJson(resolveTagNames(tagIds)));
+        activity.setStartAt(newStart);
+        activity.setEndAt(newEnd);
+        activity.setRecruitCount(normalizeRecruitCount(request.getRecruitCount()));
+        activity.setLocationText(request.getLocationText().trim());
+        activity.setMapImageUrl(trimToNull(request.getMapImageUrl()));
+        activity.setImageUrlsJson(toJson(imageUrls));
+        activity.setCoverUrl(coverUrl);
+        activity.setEditCount(1);
+        Activity saved = activityRepository.save(activity);
+
+        notifyApprovedParticipants(
+                saved,
+                Notification.TYPE_ACTIVITY_UPDATED,
+                "活动信息已变更",
+                "您参加的「" + saved.getTitle() + "」信息已变更，请前往主页—活动中查看。"
+        );
+        return toDetailVO(saved, null, true, false);
+    }
+
+    @Override
+    @Transactional
+    public ActivityDetailVO updateActivityQr(
+            Long id,
+            ActivityQrUpdateRequest request,
+            LoginUser loginUser
+    ) {
+        Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findLockedById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        requireCreator(activity, userId);
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())
+                || !activity.getEndAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("已结束的活动不能更换群二维码。");
+        }
+
+        activity.setInviteQrUrl(request.getInviteQrUrl().trim());
+        activity.setQrExpiresAt(LocalDateTime.now().plusDays(request.getRemainingDays()));
+        activity.setQrReminderSentAt(null);
+        Activity saved = activityRepository.save(activity);
+        notifyApprovedParticipants(
+                saved,
+                Notification.TYPE_ACTIVITY_QR_UPDATED,
+                "群二维码已更新",
+                "「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
+        );
+        return toDetailVO(saved, null, true, false);
+    }
+
+    @Override
+    @Transactional
     public ActivityRegistrationVO applyActivity(Long id, ActivityApplyRequest request, LoginUser loginUser) {
         Long userId = requireUserId(loginUser);
         String applicationText = trimApplicationText(request == null ? null : request.getApplicationText());
@@ -399,8 +564,11 @@ public class ActivityServiceImpl implements ActivityService {
         if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
             throw new BusinessException("Activity is not available.");
         }
-        if (activity.getEndAt() != null && !activity.getEndAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("Activity has ended.");
+        if (userId.equals(activity.getCreatorUserId())) {
+            throw new BusinessException("不能报名自己发起的活动。");
+        }
+        if (activity.getStartAt() == null || !activity.getStartAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("活动已经开始，无法报名。");
         }
 
         Optional<ActivityRegistration> existing = activityRegistrationRepository.findByActivityIdAndUserId(id, userId);
@@ -409,10 +577,6 @@ public class ActivityServiceImpl implements ActivityService {
             if (CONFLICT_STATUSES.contains(registration.getStatus())) {
                 return toRegistrationVO(registration);
             }
-        }
-
-        if (isFull(activity)) {
-            throw new BusinessException("人员已满");
         }
 
         if (activityRegistrationRepository.existsTimeConflict(
@@ -432,6 +596,9 @@ public class ActivityServiceImpl implements ActivityService {
             registration.setReviewedBy(null);
             registration.setJoinedGroupAt(null);
             registration.setApplicationText(applicationText);
+            registration.setCancellationReasonType(null);
+            registration.setCancellationReasonText(null);
+            registration.setCancelledAt(null);
             registration = activityRegistrationRepository.save(registration);
             notifyRegistrationSubmitted(activity, registration, userId);
             return toRegistrationVO(registration);
@@ -470,6 +637,65 @@ public class ActivityServiceImpl implements ActivityService {
         }
 
         return toRegistrationVO(registration);
+    }
+
+    @Override
+    @Transactional
+    public ActivityRegistrationVO cancelRegistration(
+            Long id,
+            ActivityCancelRegistrationRequest request,
+            LoginUser loginUser
+    ) {
+        Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findLockedById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        ActivityRegistration registration =
+                activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
+                        .orElseThrow(() -> new BusinessException("未找到该活动的报名记录。"));
+
+        boolean releasedCapacity = CAPACITY_STATUSES.contains(registration.getStatus());
+        if (!releasedCapacity && !ActivityRegistration.STATUS_PENDING.equals(registration.getStatus())) {
+            throw new BusinessException("当前报名状态不能取消。");
+        }
+        if (!LocalDateTime.now().isBefore(activity.getStartAt().minusHours(12))) {
+            throw new BusinessException("仅可在活动开始前至少12小时取消报名。");
+        }
+
+        String reasonType = request.getReasonType().trim();
+        String reasonLabel = CANCELLATION_REASON_LABELS.get(reasonType);
+        if (reasonLabel == null) {
+            throw new BusinessException("请选择有效的取消原因。");
+        }
+        String reasonText = trimToNull(request.getReasonText());
+        if ("other".equals(reasonType) && reasonText == null) {
+            throw new BusinessException("请填写其他取消原因。");
+        }
+        if (reasonText != null && reasonText.length() > 100) {
+            throw new BusinessException("取消原因最多100字。");
+        }
+
+        registration.setStatus(ActivityRegistration.STATUS_CANCELLED);
+        registration.setNoticeCode(ActivityRegistration.NOTICE_CANCELLED);
+        registration.setCancellationReasonType(reasonType);
+        registration.setCancellationReasonText(reasonText);
+        registration.setCancelledAt(LocalDateTime.now());
+        ActivityRegistration saved = activityRegistrationRepository.save(registration);
+
+        User participant = userRepository.findById(userId).orElse(null);
+        String participantName = resolveAuthorName(participant);
+        String reason = reasonLabel + (reasonText == null ? "" : "：" + reasonText);
+        notificationService.createNotification(
+                activity.getCreatorUserId(),
+                Notification.TYPE_REGISTRATION_CANCELLED_CREATOR,
+                "参与者取消报名",
+                participantName + " 已取消「" + activity.getTitle() + "」的报名。原因：" + reason,
+                Notification.RELATED_ACTIVITY,
+                activity.getId()
+        );
+        if (releasedCapacity) {
+            notifyEarliestPendingApplicant(activity);
+        }
+        return toRegistrationVO(saved);
     }
 
     @Override
@@ -595,6 +821,15 @@ public class ActivityServiceImpl implements ActivityService {
                 .status("PENDING")
                 .build());
 
+        notificationService.createNotification(
+                reporterUserId,
+                Notification.TYPE_REPORT_RECEIVED,
+                "举报已提交",
+                "我们已收到你对「" + activity.getTitle() + "」的举报，管理员处理后会通知你结果。",
+                Notification.RELATED_ACTIVITY,
+                activity.getId()
+        );
+
         return ActivityReportVO.builder()
                 .id(report.getId())
                 .status(report.getStatus())
@@ -614,12 +849,24 @@ public class ActivityServiceImpl implements ActivityService {
                 .findByActivityIdInAndStatusIn(activityIds, CAPACITY_STATUSES)
                 .stream()
                 .collect(Collectors.groupingBy(ActivityRegistration::getActivityId, Collectors.counting()));
+        Map<Long, String> registrationStatuses = activityRegistrationRepository
+                .findByUserIdAndActivityIdIn(userId, activityIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        ActivityRegistration::getActivityId,
+                        ActivityRegistration::getStatus,
+                        (first, ignored) -> first
+                ));
         return activities.stream()
-                .map(activity -> toPostVO(
-                        activity,
-                        favoriteIds.contains(activity.getId()),
-                        capacityCounts.getOrDefault(activity.getId(), 0L).intValue()
-                ))
+                .map(activity -> {
+                    ActivityPostVO post = toPostVO(
+                            activity,
+                            favoriteIds.contains(activity.getId()),
+                            capacityCounts.getOrDefault(activity.getId(), 0L).intValue()
+                    );
+                    post.setRegistrationStatus(registrationStatuses.get(activity.getId()));
+                    return post;
+                })
                 .toList();
     }
 
@@ -679,6 +926,7 @@ public class ActivityServiceImpl implements ActivityService {
                 .coverUrl(activity.getCoverUrl())
                 .imageUrls(images)
                 .tags(tags)
+                .tagIds(parseLongList(activity.getTagIdsJson()))
                 .startAt(toEpochMillis(activity.getStartAt()))
                 .endAt(toEpochMillis(activity.getEndAt()))
                 .joinedCount(joinedCount)
@@ -689,10 +937,64 @@ public class ActivityServiceImpl implements ActivityService {
                 .favorited(favorited)
                 .locationText(activity.getLocationText())
                 .mapImageUrl(activity.getMapImageUrl())
-                .inviteQrUrl(activity.getInviteQrUrl())
+                .inviteQrUrl(canViewInviteQr(isCreator, registration) ? activity.getInviteQrUrl() : null)
+                .qrExpiresAt(toEpochMillis(activity.getQrExpiresAt()))
+                .editCount(activity.getEditCount() == null ? 0 : activity.getEditCount())
+                .canEdit(isCreator && canEdit(activity))
+                .editBlockedReason(isCreator ? resolveEditBlockedReason(activity) : "not_creator")
                 .registrationStatus(registration == null ? null : registration.getStatus())
                 .noticeCode(registration == null ? null : registration.getNoticeCode())
                 .build();
+    }
+
+    private void requireCreator(Activity activity, Long userId) {
+        if (activity.getCreatorUserId() == null || !activity.getCreatorUserId().equals(userId)) {
+            throw new BusinessException("只有活动发起者可以执行此操作。");
+        }
+    }
+
+    private boolean canEdit(Activity activity) {
+        return resolveEditBlockedReason(activity) == null;
+    }
+
+    private String resolveEditBlockedReason(Activity activity) {
+        if (activity.getEditCount() != null && activity.getEditCount() >= 1) {
+            return "edit_limit_reached";
+        }
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
+            return "not_available";
+        }
+        LocalDateTime originalStart = activity.getOriginalStartAt() == null
+                ? activity.getStartAt()
+                : activity.getOriginalStartAt();
+        if (!LocalDateTime.now().isBefore(originalStart.minusHours(12))) {
+            return "within_12_hours";
+        }
+        return null;
+    }
+
+    private boolean canViewInviteQr(boolean isCreator, ActivityRegistration registration) {
+        return isCreator || (registration != null && CAPACITY_STATUSES.contains(registration.getStatus()));
+    }
+
+    private void notifyApprovedParticipants(
+            Activity activity,
+            String type,
+            String title,
+            String content
+    ) {
+        activityRegistrationRepository.findByActivityIdAndStatusIn(activity.getId(), CAPACITY_STATUSES)
+                .stream()
+                .map(ActivityRegistration::getUserId)
+                .distinct()
+                .forEach(userId -> notificationService.createNotification(
+                        userId,
+                        type,
+                        title,
+                        content,
+                        Notification.RELATED_ACTIVITY,
+                        activity.getId()
+                ));
     }
 
     private ActivityRegistrationVO reviewRegistration(
@@ -704,7 +1006,7 @@ public class ActivityServiceImpl implements ActivityService {
         Long reviewerId = requireUserId(loginUser);
         ActivityRegistration registration = activityRegistrationRepository.findById(registrationId)
                 .orElseThrow(() -> new BusinessException("Registration not found."));
-        Activity activity = activityRepository.findById(registration.getActivityId())
+        Activity activity = activityRepository.findLockedById(registration.getActivityId())
                 .orElseThrow(() -> new BusinessException("Activity not found."));
 
         if (!reviewerId.equals(activity.getCreatorUserId())) {
@@ -712,6 +1014,25 @@ public class ActivityServiceImpl implements ActivityService {
         }
         if (!ActivityRegistration.STATUS_PENDING.equals(registration.getStatus())) {
             throw new BusinessException("Registration has already been reviewed.");
+        }
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
+            throw new BusinessException("活动当前不可审核。");
+        }
+        if (activity.getStartAt() == null || !activity.getStartAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("活动已经开始，不能继续审核报名。");
+        }
+        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus) && isFull(activity)) {
+            registration.setNoticeCode(ActivityRegistration.NOTICE_WAITING_FULL);
+            registration = activityRegistrationRepository.save(registration);
+            notificationService.createNotification(
+                    registration.getUserId(),
+                    Notification.TYPE_REGISTRATION_WAITING_FULL,
+                    "活动名额已满",
+                    "「" + activity.getTitle() + "」当前名额已满，你的报名仍在等待审核；有名额释放时会优先通知最早报名的人。",
+                    Notification.RELATED_ACTIVITY,
+                    activity.getId()
+            );
+            return toRegistrationVO(registration);
         }
 
         registration.setStatus(targetStatus);
@@ -721,7 +1042,55 @@ public class ActivityServiceImpl implements ActivityService {
 
         registration = activityRegistrationRepository.save(registration);
         notifyRegistrationReviewed(activity, registration, targetStatus);
+        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus)
+                && activity.getRecruitCount() != null
+                && capacityCount(activity.getId()) >= activity.getRecruitCount()) {
+            createNotificationOnce(
+                    activity.getCreatorUserId(),
+                    Notification.TYPE_ACTIVITY_FULL,
+                    "活动已满员",
+                    "你发起的「" + activity.getTitle() + "」已达到招募人数上限。",
+                    activity.getId()
+            );
+        }
         return toRegistrationVO(registration);
+    }
+
+    private void notifyEarliestPendingApplicant(Activity activity) {
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())
+                || activity.getStartAt() == null
+                || !activity.getStartAt().isAfter(LocalDateTime.now())
+                || isFull(activity)) {
+            return;
+        }
+        activityRegistrationRepository
+                .findFirstByActivityIdAndStatusOrderByCreatedAtAsc(
+                        activity.getId(),
+                        ActivityRegistration.STATUS_PENDING
+                )
+                .ifPresent(registration -> notificationService.createNotification(
+                        registration.getUserId(),
+                        Notification.TYPE_ACTIVITY_SLOT_AVAILABLE,
+                        "活动有名额释放",
+                        "「" + activity.getTitle() + "」刚刚释放了一个名额。你是当前最早报名的待审核参与者，请继续等待发起者审核。",
+                        Notification.RELATED_ACTIVITY,
+                        activity.getId()
+                ));
+    }
+
+    private void createNotificationOnce(
+            Long userId,
+            String type,
+            String title,
+            String content,
+            Long activityId
+    ) {
+        if (notificationRepository.existsByUserIdAndTypeAndRelatedTypeAndRelatedId(
+                userId, type, Notification.RELATED_ACTIVITY, activityId)) {
+            return;
+        }
+        notificationService.createNotification(
+                userId, type, title, content, Notification.RELATED_ACTIVITY, activityId);
     }
 
     private void notifyRegistrationSubmitted(Activity activity, ActivityRegistration registration, Long applicantUserId) {
@@ -742,7 +1111,8 @@ public class ActivityServiceImpl implements ActivityService {
                 applicantUserId,
                 Notification.TYPE_REGISTRATION_SUBMITTED_USER,
                 "报名已提交",
-                "你已报名「" + activityTitle + "」，等待创建者审核。",
+                "你已提交「" + activityTitle
+                        + "」报名申请，等待发起者审核。审核通过后，可在活动开始前至少12小时取消报名。",
                 Notification.RELATED_ACTIVITY,
                 activity.getId()
         );
@@ -756,7 +1126,8 @@ public class ActivityServiceImpl implements ActivityService {
                 approved ? Notification.TYPE_REGISTRATION_APPROVED : Notification.TYPE_REGISTRATION_REJECTED,
                 approved ? "报名已通过" : "报名未通过",
                 approved
-                        ? "你已通过「" + activity.getTitle() + "」报名，可以加入群聊了。"
+                        ? "你已通过「" + activity.getTitle()
+                                + "」报名，可前往主页—活动中查看。如无法参加，请在活动开始前至少12小时取消报名。"
                         : "你报名的「" + activity.getTitle() + "」未通过审核。",
                 Notification.RELATED_ACTIVITY,
                 activity.getId()
@@ -966,6 +1337,17 @@ public class ActivityServiceImpl implements ActivityService {
                     .filter(StringUtils::hasText)
                     .toList();
         } catch (JsonProcessingException ex) {
+            return List.of();
+        }
+    }
+
+    private List<Long> parseLongList(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Long>>() {});
+        } catch (JsonProcessingException ignored) {
             return List.of();
         }
     }

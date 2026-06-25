@@ -6,6 +6,9 @@ import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityCreateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
+import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
 import com.londonmeet.pojo.vo.ActivityLikeVO;
@@ -27,6 +30,12 @@ public interface ActivityService {
 
     ActivityPageVO listMyOngoingActivities(ActivityQueryRequest request, LoginUser loginUser);
 
+    ActivityPageVO listMyCreatedActivities(ActivityQueryRequest request, LoginUser loginUser);
+
+    ActivityDetailVO updateActivity(Long id, ActivityUpdateRequest request, LoginUser loginUser);
+
+    ActivityDetailVO updateActivityQr(Long id, ActivityQrUpdateRequest request, LoginUser loginUser);
+
     ActivityPageVO searchActivities(ActivitySearchRequest request, LoginUser loginUser);
 
     ActivityPageVO listFavoriteActivities(ActivityQueryRequest request, LoginUser loginUser);
@@ -40,6 +49,12 @@ public interface ActivityService {
     ActivityRegistrationVO applyActivity(Long id, ActivityApplyRequest request, LoginUser loginUser);
 
     ActivityRegistrationVO joinGroup(Long id, LoginUser loginUser);
+
+    ActivityRegistrationVO cancelRegistration(
+            Long id,
+            ActivityCancelRegistrationRequest request,
+            LoginUser loginUser
+    );
 
     ActivityRegistrationVO approveRegistration(Long registrationId, LoginUser loginUser);
 

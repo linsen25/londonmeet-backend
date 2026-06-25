@@ -17,6 +17,8 @@ import com.londonmeet.server.repository.ActivityReviewRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.ReviewService;
+import com.londonmeet.server.service.NotificationService;
+import com.londonmeet.pojo.entity.Notification;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ import java.util.stream.Collectors;
 public class ReviewServiceImpl implements ReviewService {
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
+    private static final int REVIEW_WINDOW_DAYS = 7;
     private static final List<String> PARTICIPANT_STATUSES = List.of(
             ActivityRegistration.STATUS_APPROVED,
             ActivityRegistration.STATUS_JOINED_GROUP
@@ -60,6 +63,7 @@ public class ReviewServiceImpl implements ReviewService {
     private final ActivityReviewRepository activityReviewRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -72,7 +76,11 @@ public class ReviewServiceImpl implements ReviewService {
                 STATUS_PUBLISHED,
                 LocalDateTime.now(),
                 PARTICIPANT_STATUSES
-        );
+        ).stream()
+                .filter(activity -> activity.getEndAt() != null)
+                .filter(activity -> activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS)
+                        .isAfter(LocalDateTime.now()))
+                .toList();
         if (activities.isEmpty()) {
             return List.of();
         }
@@ -112,6 +120,9 @@ public class ReviewServiceImpl implements ReviewService {
         if (activity.getEndAt() == null || activity.getEndAt().isAfter(LocalDateTime.now())) {
             throw new BusinessException("Activity has not ended yet.");
         }
+        if (!activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS).isAfter(LocalDateTime.now())) {
+            throw new BusinessException("评价有效期为活动结束后7天，当前已过期。");
+        }
 
         Long targetId = ActivityReview.TARGET_ACTIVITY.equals(mode)
                 ? ActivityReview.ACTIVITY_TARGET_ID
@@ -139,8 +150,26 @@ public class ReviewServiceImpl implements ReviewService {
         review.setTargetId(targetId);
         review.setOverallScore(overall);
         review.setScoresJson(toJson(scores));
+        if (review.getStatus() == null) {
+            review.setStatus(ActivityReview.STATUS_NORMAL);
+        }
 
         ActivityReview saved = activityReviewRepository.save(review);
+
+        Long receiverUserId = ActivityReview.TARGET_ACTIVITY.equals(mode)
+                ? activity.getCreatorUserId()
+                : targetId;
+        if (receiverUserId != null && !receiverUserId.equals(reviewerUserId)) {
+            User reviewer = userRepository.findById(reviewerUserId).orElse(null);
+            notificationService.createNotification(
+                    receiverUserId,
+                    Notification.TYPE_REVIEW_RECEIVED,
+                    ActivityReview.TARGET_ACTIVITY.equals(mode) ? "活动收到新评价" : "你收到一条成员评价",
+                    resolveUserName(reviewer) + " 已完成「" + activity.getTitle() + "」的评价。",
+                    Notification.RELATED_ACTIVITY,
+                    activity.getId()
+            );
+        }
 
         return ReviewSubmitVO.builder()
                 .id(saved.getId())
@@ -153,6 +182,7 @@ public class ReviewServiceImpl implements ReviewService {
 
     private List<ReviewTaskVO> buildActivityTasks(Long userId, List<Activity> activities) {
         return activities.stream()
+                .filter(activity -> !userId.equals(activity.getCreatorUserId()))
                 .filter(activity -> !activityReviewRepository.existsByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
                         userId,
                         activity.getId(),
@@ -233,9 +263,10 @@ public class ReviewServiceImpl implements ReviewService {
                                 .endAt(toEpochMillis(activity.getEndAt()))
                                 .overallRating(0.0)
                                 .timelinessRating(0.0)
-                                .reviewCount(activityReviewRepository.countByTargetTypeAndTargetId(
+                                .reviewCount(activityReviewRepository.countByTargetTypeAndTargetIdAndStatus(
                                         ActivityReview.TARGET_MEMBER,
-                                        targetId
+                                        targetId,
+                                        ActivityReview.STATUS_NORMAL
                                 ))
                                 .build());
                     });
@@ -249,7 +280,9 @@ public class ReviewServiceImpl implements ReviewService {
             return false;
         }
         if (ActivityReview.TARGET_ACTIVITY.equals(mode)) {
-            return targetId != null && targetId == ActivityReview.ACTIVITY_TARGET_ID;
+            return !reviewerUserId.equals(activity.getCreatorUserId())
+                    && targetId != null
+                    && targetId == ActivityReview.ACTIVITY_TARGET_ID;
         }
         return targetId != null
                 && !targetId.equals(reviewerUserId)

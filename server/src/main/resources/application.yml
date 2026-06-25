@@ -11,9 +11,9 @@ spring:
       max-request-size: 10MB
 
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/london_meet?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:change-me}
+    url: jdbc:mysql://localhost:3306/london_meet?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -51,7 +51,7 @@ management:
         include: health,info
 
 jwt:
-  secret-key: ${JWT_SECRET:londonmeet-dev-only-secret-key-change-in-production}
+  secret-key: londonmeetjwtsecretkeylondonmeetjwtsecretkey
   expiration: ${JWT_EXPIRATION:604800000}
 
 admin:
@@ -59,22 +59,22 @@ admin:
   password: ${ADMIN_PASSWORD:admin}
 
 wechat:
-  mock-enabled: ${WECHAT_MOCK_ENABLED:true}
-  app-id: ${WECHAT_APP_ID:}
-  secret: ${WECHAT_SECRET:}
+  mock-enabled: true
+  app-id: wx1f685f2109d776a0
+  secret: edd9927fb9d9e2fdc2113fd014dd95d2
   
 upload:
-  avatar-dir: ${AVATAR_UPLOAD_DIR:uploads/avatar}
+  avatar-dir: ${AVATAR_UPLOAD_DIR:server/uploads/avatar}
   avatar-url-prefix: /uploads/avatar
   default-avatar-url: /uploads/avatar/default-avatar.png
-  cover-dir: ${COVER_UPLOAD_DIR:uploads/cover}
+  cover-dir: ${COVER_UPLOAD_DIR:server/uploads/cover}
   cover-url-prefix: /uploads/cover
-  default-cover-url: https://dummyimage.com/1200x800/2b2b2b/ffffff.png&text=Cover
+  default-cover-url: ""
 
 cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
-  upload-preset: ${CLOUDINARY_UPLOAD_PRESET:}
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:ddkqatprj}
+  upload-preset: ${CLOUDINARY_UPLOAD_PRESET:londonmeet}
 
 google:
   maps:
-    api-key: ${GOOGLE_MAPS_API_KEY:}
+    api-key: AIzaSyCnzsmZhct_1gQyVg1-_D7gz9LbKylYdMo

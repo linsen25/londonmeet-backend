@@ -18,6 +18,7 @@ public class ActivityRegistration {
     public static final String STATUS_JOINED_GROUP = "joined_group";
     public static final String STATUS_REJECTED = "rejected";
     public static final String STATUS_CANCELLED = "cancelled";
+    public static final String STATUS_EXPIRED = "expired";
 
     public static final int NOTICE_APPLICATION_SUBMITTED = 1001;
     public static final int NOTICE_FULL = 1002;
@@ -26,6 +27,8 @@ public class ActivityRegistration {
     public static final int NOTICE_JOINED_GROUP = 1005;
     public static final int NOTICE_REJECTED = 1006;
     public static final int NOTICE_CANCELLED = 1007;
+    public static final int NOTICE_WAITING_FULL = 1008;
+    public static final int NOTICE_EXPIRED = 1009;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -46,6 +49,12 @@ public class ActivityRegistration {
     @Column(name = "application_text", length = 100)
     private String applicationText;
 
+    @Column(name = "cancellation_reason_type", length = 30)
+    private String cancellationReasonType;
+
+    @Column(name = "cancellation_reason_text", length = 100)
+    private String cancellationReasonText;
+
     @Column(name = "reviewed_by")
     private Long reviewedBy;
 
@@ -54,6 +63,9 @@ public class ActivityRegistration {
 
     @Column(name = "joined_group_at")
     private LocalDateTime joinedGroupAt;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

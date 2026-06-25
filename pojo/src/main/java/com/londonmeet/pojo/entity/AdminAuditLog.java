@@ -32,6 +32,12 @@ public class AdminAuditLog {
     @Column(name = "reason", length = 500)
     private String reason;
 
+    @Column(name = "before_json", columnDefinition = "TEXT")
+    private String beforeJson;
+
+    @Column(name = "after_json", columnDefinition = "TEXT")
+    private String afterJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

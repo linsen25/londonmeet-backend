@@ -18,6 +18,25 @@ public class Notification {
     public static final String TYPE_REGISTRATION_APPROVED = "registration_approved";
     public static final String TYPE_REGISTRATION_REJECTED = "registration_rejected";
     public static final String TYPE_ADMIN_MESSAGE = "admin_message";
+    public static final String TYPE_ACTIVITY_UPDATED = "activity_updated";
+    public static final String TYPE_ACTIVITY_QR_UPDATED = "activity_qr_updated";
+    public static final String TYPE_ACTIVITY_QR_EXPIRING = "activity_qr_expiring";
+    public static final String TYPE_REGISTRATION_CANCELLED_CREATOR = "registration_cancelled_creator";
+    public static final String TYPE_ACTIVITY_PUBLISHED = "activity_published";
+    public static final String TYPE_REVIEW_REMINDER = "review_reminder";
+    public static final String TYPE_REVIEW_AVAILABLE = "review_available";
+    public static final String TYPE_REVIEW_RECEIVED = "review_received";
+    public static final String TYPE_REPORT_RECEIVED = "report_received";
+    public static final String TYPE_REPORT_RESULT = "report_result";
+    public static final String TYPE_FEEDBACK_RECEIVED = "feedback_received";
+    public static final String TYPE_FEEDBACK_RESULT = "feedback_result";
+    public static final String TYPE_ADMIN_ACTIVITY_ACTION = "admin_activity_action";
+    public static final String TYPE_ACTIVITY_START_REMINDER = "activity_start_reminder";
+    public static final String TYPE_ACTIVITY_FULL = "activity_full";
+    public static final String TYPE_REVIEW_MODERATED = "review_moderated";
+    public static final String TYPE_REGISTRATION_WAITING_FULL = "registration_waiting_full";
+    public static final String TYPE_ACTIVITY_SLOT_AVAILABLE = "activity_slot_available";
+    public static final String TYPE_REGISTRATION_EXPIRED = "registration_expired";
 
     public static final String RELATED_ACTIVITY = "activity";
     public static final String RELATED_PENDING_REVIEW = "pending_review";

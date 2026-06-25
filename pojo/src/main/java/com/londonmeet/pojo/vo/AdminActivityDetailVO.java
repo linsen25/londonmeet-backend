@@ -29,5 +29,6 @@ public class AdminActivityDetailVO {
     private String governanceAction;
     private String governanceReason;
     private Long governedAt;
+    private List<AdminAuditLogVO> auditLogs;
     private List<AdminParticipantVO> participants;
 }

@@ -8,6 +8,13 @@ import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
+    boolean existsByUserIdAndTypeAndRelatedTypeAndRelatedId(
+            Long userId,
+            String type,
+            String relatedType,
+            Long relatedId
+    );
+
     long countByUserIdAndReadAtIsNull(Long userId);
 
     List<Notification> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);

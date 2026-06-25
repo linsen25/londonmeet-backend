@@ -17,10 +17,10 @@ Start the infrastructure:
 docker compose up -d
 ```
 
-Set the required environment variables using `.env.example` as a reference, then run:
+Create a local `.env` from `.env.example`, then run:
 
 ```powershell
-.\mvnw.cmd -pl server -am spring-boot:run
+.\mvnw.cmd -f server\pom.xml spring-boot:run
 ```
 
 The API starts at `http://127.0.0.1:8080`.

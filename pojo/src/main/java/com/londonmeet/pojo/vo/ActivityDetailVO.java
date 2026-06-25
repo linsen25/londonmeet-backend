@@ -29,6 +29,8 @@ public class ActivityDetailVO {
 
     private List<String> tags;
 
+    private List<Long> tagIds;
+
     private Long startAt;
 
     private Long endAt;
@@ -50,6 +52,14 @@ public class ActivityDetailVO {
     private String mapImageUrl;
 
     private String inviteQrUrl;
+
+    private Long qrExpiresAt;
+
+    private Integer editCount;
+
+    private Boolean canEdit;
+
+    private String editBlockedReason;
 
     private String registrationStatus;
 

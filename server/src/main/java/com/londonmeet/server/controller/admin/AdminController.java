@@ -4,6 +4,7 @@ import com.londonmeet.common.response.ApiResponse;
 import com.londonmeet.pojo.dto.request.AdminLoginRequest;
 import com.londonmeet.pojo.dto.request.AdminActionRequest;
 import com.londonmeet.pojo.dto.request.AdminActivityTagsRequest;
+import com.londonmeet.pojo.dto.request.AdminActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.AdminTagRequest;
 import com.londonmeet.pojo.dto.request.AdminNotificationRequest;
 import com.londonmeet.pojo.vo.AdminActivityDetailVO;
@@ -14,6 +15,7 @@ import com.londonmeet.pojo.vo.AdminReportPageVO;
 import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
+import com.londonmeet.pojo.vo.AdminReviewPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.AdminService;
@@ -103,6 +105,15 @@ public class AdminController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(adminService.updateActivityStatus(id, action, request, loginUser));
+    }
+
+    @PutMapping("/activities/{id}")
+    public ApiResponse<AdminActivityDetailVO> editActivity(
+            @PathVariable Long id,
+            @RequestBody AdminActivityUpdateRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(adminService.updateActivity(id, request, loginUser));
     }
 
     @PutMapping("/activities/{id}/tags")
@@ -215,6 +226,30 @@ public class AdminController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         adminService.handleFeedback(id, request, loginUser);
+        return ApiResponse.success();
+    }
+
+    @GetMapping("/reviews")
+    public ApiResponse<AdminReviewPageVO> reviews(
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(adminService.listReviews(
+                targetType, status, keyword, page, pageSize, loginUser
+        ));
+    }
+
+    @PostMapping("/reviews/{id}/status")
+    public ApiResponse<Void> updateReviewStatus(
+            @PathVariable Long id,
+            @RequestBody AdminActionRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        adminService.updateReviewStatus(id, request, loginUser);
         return ApiResponse.success();
     }
 }

@@ -3,6 +3,7 @@ package com.londonmeet.server.service;
 import com.londonmeet.pojo.dto.request.AdminLoginRequest;
 import com.londonmeet.pojo.dto.request.AdminActionRequest;
 import com.londonmeet.pojo.dto.request.AdminActivityTagsRequest;
+import com.londonmeet.pojo.dto.request.AdminActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.AdminTagRequest;
 import com.londonmeet.pojo.dto.request.AdminNotificationRequest;
 import com.londonmeet.pojo.vo.AdminActivityDetailVO;
@@ -13,6 +14,7 @@ import com.londonmeet.pojo.vo.AdminReportPageVO;
 import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
+import com.londonmeet.pojo.vo.AdminReviewPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
 import com.londonmeet.server.security.LoginUser;
 
@@ -43,6 +45,10 @@ public interface AdminService {
             Long id, String action, AdminActionRequest request, LoginUser loginUser
     );
 
+    AdminActivityDetailVO updateActivity(
+            Long id, AdminActivityUpdateRequest request, LoginUser loginUser
+    );
+
     AdminReportPageVO listReports(String status, Integer page, Integer pageSize, LoginUser loginUser);
 
     void handleReport(Long id, AdminActionRequest request, LoginUser loginUser);
@@ -70,6 +76,17 @@ public interface AdminService {
     );
 
     void handleFeedback(Long id, AdminActionRequest request, LoginUser loginUser);
+
+    AdminReviewPageVO listReviews(
+            String targetType,
+            String status,
+            String keyword,
+            Integer page,
+            Integer pageSize,
+            LoginUser loginUser
+    );
+
+    void updateReviewStatus(Long id, AdminActionRequest request, LoginUser loginUser);
 
     void sendUserNotification(
             Long userId, AdminNotificationRequest request, LoginUser loginUser
