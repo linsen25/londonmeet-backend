@@ -1,6 +1,5 @@
 package com.londonmeet.server.service;
 
-import com.londonmeet.pojo.dto.request.ActivityLikeRequest;
 import com.londonmeet.pojo.dto.request.ActivityApplyRequest;
 import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityCreateRequest;
@@ -10,8 +9,8 @@ import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
+import com.londonmeet.pojo.dto.request.ActivityEventRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
-import com.londonmeet.pojo.vo.ActivityLikeVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
 import com.londonmeet.pojo.vo.ActivityPageVO;
 import com.londonmeet.pojo.vo.ActivityPostVO;
@@ -60,9 +59,9 @@ public interface ActivityService {
 
     ActivityRegistrationVO rejectRegistration(Long registrationId, LoginUser loginUser);
 
-    ActivityLikeVO updateLike(Long id, ActivityLikeRequest request);
-
     ActivityFavoriteVO updateFavorite(Long id, ActivityFavoriteRequest request, LoginUser loginUser);
 
     ActivityReportVO reportActivity(Long id, ActivityReportRequest request, LoginUser loginUser);
+
+    void recordEvents(ActivityEventRequest request, LoginUser loginUser);
 }

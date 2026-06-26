@@ -21,5 +21,7 @@ public class UserProfileVO {
 
     private List<String> tags;
 
+    private String status;
+
     private UserProfileStatsVO stats;
 }

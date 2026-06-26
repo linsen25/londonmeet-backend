@@ -89,15 +89,18 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
 
     long countByCreatorUserId(Long creatorUserId);
 
+    java.util.List<Activity> findByCreatorUserIdAndStatusAndEndAtAfter(
+            Long creatorUserId,
+            String status,
+            LocalDateTime now
+    );
+
     long countByCreatorUserIdAndStatusAndStartAtLessThanEqualAndEndAtAfter(
             Long creatorUserId,
             String status,
             LocalDateTime startAt,
             LocalDateTime endAt
     );
-
-    @Query("select coalesce(sum(a.likeCount), 0) from Activity a where a.creatorUserId = :creatorUserId")
-    long sumLikeCountByCreatorUserId(@Param("creatorUserId") Long creatorUserId);
 
     long countByStartAtAfter(LocalDateTime now);
 
@@ -114,15 +117,34 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
                    or lower(a.authorName) like lower(concat('%', :keyword, '%')))
               and (
                     :status is null
-                    or (:status = 'upcoming' and a.startAt > :now)
-                    or (:status = 'ongoing' and a.startAt <= :now and a.endAt > :now)
-                    or (:status = 'ended' and a.endAt <= :now)
+                    or (:status = 'upcoming' and a.status = 'PUBLISHED' and a.startAt > :now)
+                    or (:status = 'ongoing' and a.status = 'PUBLISHED' and a.startAt <= :now and a.endAt > :now)
+                    or (:status = 'ended' and a.status = 'PUBLISHED' and a.endAt <= :now)
+                    or (:status = 'hidden' and a.status = 'HIDDEN')
+                    or (:status = 'cancelled' and a.status = 'CANCELLED')
                   )
             """)
     Page<Activity> findAdminActivities(
             @Param("keyword") String keyword,
             @Param("status") String status,
             @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Query("""
+            select distinct a
+            from Activity a
+            join ActivityReview r on r.activityId = a.id
+            where (:keyword is null
+                   or lower(a.title) like lower(concat('%', :keyword, '%'))
+                   or lower(a.authorName) like lower(concat('%', :keyword, '%')))
+              and (:targetType is null or r.targetType = :targetType)
+              and (:reviewStatus is null or r.status = :reviewStatus)
+            """)
+    Page<Activity> findAdminReviewActivities(
+            @Param("keyword") String keyword,
+            @Param("targetType") String targetType,
+            @Param("reviewStatus") String reviewStatus,
             Pageable pageable
     );
 

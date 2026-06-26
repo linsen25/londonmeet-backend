@@ -54,10 +54,6 @@ public class AuthServiceImpl implements AuthService {
                 .orElseGet(() -> createUser(session, request));
         log.info("WECHAT_LOGIN STEP 3 user loaded id={}", user.getId());
 
-        if (!USER_STATUS_ACTIVE.equals(user.getStatus())) {
-            throw new BusinessException(MessageConstant.ACCOUNT_DISABLED);
-        }
-
         if (StringUtils.hasText(session.getUnionid())) {
             user.setUnionid(session.getUnionid());
         }

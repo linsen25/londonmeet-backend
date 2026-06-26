@@ -54,8 +54,15 @@ public class ApiResponse<T> implements Serializable {
      * Error response.
      */
     public static <T> ApiResponse<T> error(String message) {
+        return error(500, message);
+    }
+
+    /**
+     * Error response with business status code.
+     */
+    public static <T> ApiResponse<T> error(Integer code, String message) {
         ApiResponse<T> response = new ApiResponse<>();
-        response.setCode(500);
+        response.setCode(code);
         response.setMessage(message);
         return response;
     }

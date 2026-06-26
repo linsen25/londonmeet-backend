@@ -5,12 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.pojo.dto.request.ReviewScoreRequest;
 import com.londonmeet.pojo.dto.request.ReviewSubmitRequest;
+import com.londonmeet.pojo.dto.request.ReviewBatchGoodRequest;
 import com.londonmeet.pojo.entity.Activity;
 import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityReview;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.vo.ReviewSubmitVO;
 import com.londonmeet.pojo.vo.ReviewTaskVO;
+import com.londonmeet.pojo.vo.ReviewBatchGoodVO;
 import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.ActivityRepository;
 import com.londonmeet.server.repository.ActivityReviewRepository;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -54,8 +57,7 @@ public class ReviewServiceImpl implements ReviewService {
     private static final List<String> MEMBER_KEYS = List.of(
             "punctual",
             "communication",
-            "friendly",
-            "participation"
+            "friendly"
     );
 
     private final ActivityRepository activityRepository;
@@ -123,7 +125,6 @@ public class ReviewServiceImpl implements ReviewService {
         if (!activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS).isAfter(LocalDateTime.now())) {
             throw new BusinessException("评价有效期为活动结束后7天，当前已过期。");
         }
-
         Long targetId = ActivityReview.TARGET_ACTIVITY.equals(mode)
                 ? ActivityReview.ACTIVITY_TARGET_ID
                 : request.getTargetId();
@@ -135,40 +136,56 @@ public class ReviewServiceImpl implements ReviewService {
         List<ReviewScoreRequest> scores = normalizeScores(mode, request.getScores());
         BigDecimal overall = average(scores);
 
-        ActivityReview review = activityReviewRepository
-                .findByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
-                        reviewerUserId,
-                        activity.getId(),
-                        mode,
-                        targetId
-                )
-                .orElseGet(ActivityReview::new);
+        if (activityReviewRepository.existsByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
+                reviewerUserId, activity.getId(), mode, targetId)) {
+            throw new BusinessException("该评价已经提交，不能重复评价。");
+        }
 
+        ActivityReview review = new ActivityReview();
         review.setReviewerUserId(reviewerUserId);
         review.setActivityId(activity.getId());
         review.setTargetType(mode);
         review.setTargetId(targetId);
         review.setOverallScore(overall);
         review.setScoresJson(toJson(scores));
-        if (review.getStatus() == null) {
-            review.setStatus(ActivityReview.STATUS_NORMAL);
+        boolean lowScore = scores.stream().anyMatch(score -> score.getValue() < 3);
+        String reason = trimToEmpty(request.getReason());
+        if (lowScore && !StringUtils.hasText(reason)) {
+            throw new BusinessException("存在低于3分的评分，请填写低分原因。");
         }
+        if (reason.length() > 300) {
+            throw new BusinessException("低分原因最多300字。");
+        }
+        review.setReason(StringUtils.hasText(reason) ? reason : null);
+        review.setBatchGood(false);
+        review.setStatus(lowScore ? ActivityReview.STATUS_PENDING : ActivityReview.STATUS_NORMAL);
 
         ActivityReview saved = activityReviewRepository.save(review);
 
-        Long receiverUserId = ActivityReview.TARGET_ACTIVITY.equals(mode)
-                ? activity.getCreatorUserId()
-                : targetId;
-        if (receiverUserId != null && !receiverUserId.equals(reviewerUserId)) {
-            User reviewer = userRepository.findById(reviewerUserId).orElse(null);
+        if (lowScore) {
             notificationService.createNotification(
-                    receiverUserId,
-                    Notification.TYPE_REVIEW_RECEIVED,
-                    ActivityReview.TARGET_ACTIVITY.equals(mode) ? "活动收到新评价" : "你收到一条成员评价",
-                    resolveUserName(reviewer) + " 已完成「" + activity.getTitle() + "」的评价。",
+                    reviewerUserId,
+                    Notification.TYPE_REVIEW_MODERATED,
+                    "低分评价已提交审核",
+                    "你对「" + activity.getTitle() + "」提交的低分评价已进入管理员审核，审核前不会计入综合评分。",
                     Notification.RELATED_ACTIVITY,
                     activity.getId()
             );
+        } else {
+            Long receiverUserId = ActivityReview.TARGET_ACTIVITY.equals(mode)
+                    ? activity.getCreatorUserId()
+                    : targetId;
+            User reviewer = userRepository.findById(reviewerUserId).orElse(null);
+            if (receiverUserId != null && !receiverUserId.equals(reviewerUserId)) {
+                notificationService.createNotification(
+                        receiverUserId,
+                        Notification.TYPE_REVIEW_RECEIVED,
+                        ActivityReview.TARGET_ACTIVITY.equals(mode) ? "活动收到新评价" : "你收到一条成员评价",
+                        resolveUserName(reviewer) + " 已完成「" + activity.getTitle() + "」的评价。",
+                        Notification.RELATED_ACTIVITY,
+                        activity.getId()
+                );
+            }
         }
 
         return ReviewSubmitVO.builder()
@@ -177,6 +194,89 @@ public class ReviewServiceImpl implements ReviewService {
                 .activityId(saved.getActivityId())
                 .targetId(saved.getTargetId())
                 .overallScore(saved.getOverallScore().doubleValue())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public ReviewBatchGoodVO submitBatchGood(
+            ReviewBatchGoodRequest request,
+            LoginUser loginUser
+    ) {
+        Long reviewerUserId = requireUserId(loginUser);
+        if (request == null || request.getActivityId() == null) {
+            throw new BusinessException("Activity id is required.");
+        }
+        Activity activity = activityRepository.findById(request.getActivityId())
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        if (!reviewerUserId.equals(activity.getCreatorUserId())) {
+            throw new BusinessException("只有活动发起人可以一键好评参与者。");
+        }
+        if (activity.getEndAt() == null || activity.getEndAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("Activity has not ended yet.");
+        }
+        if (!activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS).isAfter(LocalDateTime.now())) {
+            throw new BusinessException("评价有效期为活动结束后7天，当前已过期。");
+        }
+        List<Long> targetIds = request.getTargetIds() == null
+                ? List.of()
+                : request.getTargetIds().stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(id -> !id.equals(reviewerUserId))
+                .distinct()
+                .toList();
+        if (targetIds.isEmpty()) {
+            throw new BusinessException("请选择需要一键好评的参与者。");
+        }
+        List<Long> submittedTargetIds = new ArrayList<>();
+        Map<Long, String> skippedTargets = new LinkedHashMap<>();
+        List<ReviewScoreRequest> scores = MEMBER_KEYS.stream().map(key -> {
+            ReviewScoreRequest score = new ReviewScoreRequest();
+            score.setKey(key);
+            score.setLabel(switch (key) {
+                case "punctual" -> "准时守约";
+                case "communication" -> "沟通配合";
+                default -> "友善礼貌";
+            });
+            score.setValue(5.0);
+            return score;
+        }).toList();
+
+        for (Long targetId : targetIds) {
+            if (!canReviewTarget(reviewerUserId, activity, ActivityReview.TARGET_MEMBER, targetId)) {
+                skippedTargets.put(targetId, "不是该活动的有效参与者");
+                continue;
+            }
+            if (activityReviewRepository.existsByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
+                    reviewerUserId, activity.getId(), ActivityReview.TARGET_MEMBER, targetId)) {
+                skippedTargets.put(targetId, "已经评价");
+                continue;
+            }
+            ActivityReview review = ActivityReview.builder()
+                    .reviewerUserId(reviewerUserId)
+                    .activityId(activity.getId())
+                    .targetType(ActivityReview.TARGET_MEMBER)
+                    .targetId(targetId)
+                    .overallScore(BigDecimal.valueOf(5).setScale(2))
+                    .scoresJson(toJson(scores))
+                    .batchGood(true)
+                    .status(ActivityReview.STATUS_NORMAL)
+                    .build();
+            ActivityReview saved = activityReviewRepository.save(review);
+            notificationService.createNotification(
+                    targetId,
+                    Notification.TYPE_REVIEW_RECEIVED,
+                    "你收到一条成员评价",
+                    resolveUserName(userRepository.findById(reviewerUserId).orElse(null))
+                            + " 已完成「" + activity.getTitle() + "」的评价。",
+                    Notification.RELATED_ACTIVITY,
+                    activity.getId()
+            );
+            submittedTargetIds.add(saved.getTargetId());
+        }
+        return ReviewBatchGoodVO.builder()
+                .submittedTargetIds(submittedTargetIds)
+                .skippedTargets(skippedTargets)
                 .build();
     }
 
@@ -207,18 +307,19 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     private List<ReviewTaskVO> buildMemberTasks(Long userId, List<Activity> activities) {
-        List<Long> activityIds = activities.stream().map(Activity::getId).toList();
-        Map<Long, Activity> activityById = activities.stream()
+        List<Activity> createdActivities = activities.stream()
+                .filter(activity -> userId.equals(activity.getCreatorUserId()))
+                .toList();
+        if (createdActivities.isEmpty()) {
+            return List.of();
+        }
+        List<Long> activityIds = createdActivities.stream().map(Activity::getId).toList();
+        Map<Long, Activity> activityById = createdActivities.stream()
                 .collect(Collectors.toMap(Activity::getId, Function.identity()));
 
         Map<Long, Map<Long, Long>> participantIdsByActivity = new LinkedHashMap<>();
-        activities.forEach(activity -> {
-            Map<Long, Long> ids = new LinkedHashMap<>();
-            if (activity.getCreatorUserId() != null) {
-                ids.put(activity.getCreatorUserId(), activity.getCreatorUserId());
-            }
-            participantIdsByActivity.put(activity.getId(), ids);
-        });
+        createdActivities.forEach(activity ->
+                participantIdsByActivity.put(activity.getId(), new LinkedHashMap<>()));
 
         List<ActivityRegistration> registrations =
                 activityRegistrationRepository.findByActivityIdInAndStatusIn(activityIds, PARTICIPANT_STATUSES);
@@ -268,6 +369,7 @@ public class ReviewServiceImpl implements ReviewService {
                                         targetId,
                                         ActivityReview.STATUS_NORMAL
                                 ))
+                                .canBatchGood(userId.equals(activity.getCreatorUserId()))
                                 .build());
                     });
         });
@@ -284,7 +386,8 @@ public class ReviewServiceImpl implements ReviewService {
                     && targetId != null
                     && targetId == ActivityReview.ACTIVITY_TARGET_ID;
         }
-        return targetId != null
+        return reviewerUserId.equals(activity.getCreatorUserId())
+                && targetId != null
                 && !targetId.equals(reviewerUserId)
                 && isActivityParticipant(targetId, activity.getId(), activity.getCreatorUserId());
     }

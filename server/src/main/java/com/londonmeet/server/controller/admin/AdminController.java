@@ -16,7 +16,10 @@ import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
 import com.londonmeet.pojo.vo.AdminReviewPageVO;
+import com.londonmeet.pojo.vo.AdminReviewActivityPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
+import com.londonmeet.pojo.vo.AdminActivityAnalyticsVO;
+import com.londonmeet.pojo.vo.AdminUserAnalyticsVO;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.AdminService;
 import lombok.RequiredArgsConstructor;
@@ -43,9 +46,10 @@ public class AdminController {
 
     @GetMapping("/dashboard")
     public ApiResponse<AdminDashboardVO> dashboard(
+            @RequestParam(defaultValue = "30") Integer days,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
-        return ApiResponse.success(adminService.getDashboard(loginUser));
+        return ApiResponse.success(adminService.getDashboard(days, loginUser));
     }
 
     @GetMapping("/settings")
@@ -57,9 +61,11 @@ public class AdminController {
 
     @GetMapping("/dashboard/export")
     public ResponseEntity<byte[]> exportReport(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
-        byte[] file = adminService.exportRecentReport(loginUser);
+        byte[] file = adminService.exportRecentReport(startDate, endDate, loginUser);
         String filename = "晚些去哪里呀-近30天数据-" + LocalDate.now() + ".xlsx";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
@@ -95,16 +101,6 @@ public class AdminController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(adminService.getActivityDetail(id, loginUser));
-    }
-
-    @PostMapping("/activities/{id}/{action}")
-    public ApiResponse<AdminActivityDetailVO> updateActivity(
-            @PathVariable Long id,
-            @PathVariable String action,
-            @RequestBody(required = false) AdminActionRequest request,
-            @AuthenticationPrincipal LoginUser loginUser
-    ) {
-        return ApiResponse.success(adminService.updateActivityStatus(id, action, request, loginUser));
     }
 
     @PutMapping("/activities/{id}")
@@ -229,8 +225,29 @@ public class AdminController {
         return ApiResponse.success();
     }
 
-    @GetMapping("/reviews")
-    public ApiResponse<AdminReviewPageVO> reviews(
+    @GetMapping("/appeals")
+    public ApiResponse<AdminFeedbackPageVO> appeals(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(
+                adminService.listAccountAppeals(status, page, pageSize, loginUser));
+    }
+
+    @PostMapping("/appeals/{id}/handle")
+    public ApiResponse<Void> handleAppeal(
+            @PathVariable Long id,
+            @RequestBody AdminActionRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        adminService.handleAccountAppeal(id, request, loginUser);
+        return ApiResponse.success();
+    }
+
+    @GetMapping("/review-activities")
+    public ApiResponse<AdminReviewActivityPageVO> reviewActivities(
             @RequestParam(required = false) String targetType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
@@ -238,9 +255,16 @@ public class AdminController {
             @RequestParam(defaultValue = "20") Integer pageSize,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
-        return ApiResponse.success(adminService.listReviews(
-                targetType, status, keyword, page, pageSize, loginUser
-        ));
+        return ApiResponse.success(adminService.listReviewActivities(
+                targetType, status, keyword, page, pageSize, loginUser));
+    }
+
+    @GetMapping("/review-activities/{activityId}")
+    public ApiResponse<AdminReviewPageVO> activityReviewDetails(
+            @PathVariable Long activityId,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(adminService.listActivityReviewDetails(activityId, loginUser));
     }
 
     @PostMapping("/reviews/{id}/status")
@@ -251,5 +275,26 @@ public class AdminController {
     ) {
         adminService.updateReviewStatus(id, request, loginUser);
         return ApiResponse.success();
+    }
+
+    @GetMapping("/analytics/activities")
+    public ApiResponse<AdminActivityAnalyticsVO> activityAnalytics(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer pageSize,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(adminService.getActivityAnalytics(
+                startDate, endDate, page, pageSize, loginUser));
+    }
+
+    @GetMapping("/analytics/users")
+    public ApiResponse<AdminUserAnalyticsVO> userAnalytics(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(adminService.getUserAnalytics(startDate, endDate, loginUser));
     }
 }

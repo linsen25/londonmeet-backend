@@ -14,4 +14,6 @@ public class ReviewSubmitRequest {
     private Long targetId;
 
     private List<ReviewScoreRequest> scores;
+
+    private String reason;
 }

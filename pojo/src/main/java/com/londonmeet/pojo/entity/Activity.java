@@ -35,12 +35,6 @@ public class Activity {
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;
 
-    @Column(name = "like_count", nullable = false)
-    private Integer likeCount;
-
-    @Column(name = "liked", nullable = false)
-    private Boolean liked;
-
     @Column(name = "favorite_count", nullable = false)
     private Integer favoriteCount;
 
@@ -64,6 +58,9 @@ public class Activity {
 
     @Column(name = "recruit_count")
     private Integer recruitCount;
+
+    @Column(name = "archived_participant_count")
+    private Long archivedParticipantCount;
 
     @Column(name = "location_text", length = 500)
     private String locationText;
@@ -101,12 +98,6 @@ public class Activity {
     @PrePersist
     public void prePersist() {
         LocalDateTime now = LocalDateTime.now();
-        if (likeCount == null) {
-            likeCount = 0;
-        }
-        if (liked == null) {
-            liked = false;
-        }
         if (favoriteCount == null) {
             favoriteCount = 0;
         }

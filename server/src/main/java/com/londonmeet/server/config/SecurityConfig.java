@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.londonmeet.common.constant.MessageConstant;
 import com.londonmeet.common.response.ApiResponse;
 import com.londonmeet.server.security.JwtAuthenticationFilter;
+import com.londonmeet.server.security.DisabledUserRestrictionFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,6 +20,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final DisabledUserRestrictionFilter disabledUserRestrictionFilter;
     private final ObjectMapper objectMapper;
 
     @Bean
@@ -52,10 +54,14 @@ public class SecurityConfig {
                             response.setStatus(401);
                             response.setCharacterEncoding("UTF-8");
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                            objectMapper.writeValue(response.getWriter(), ApiResponse.error(MessageConstant.UNAUTHORIZED));
+                            objectMapper.writeValue(
+                                    response.getWriter(),
+                                    ApiResponse.error(401, MessageConstant.UNAUTHORIZED)
+                            );
                         })
                 )
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(disabledUserRestrictionFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

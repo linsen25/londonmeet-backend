@@ -37,6 +37,8 @@ public class Notification {
     public static final String TYPE_REGISTRATION_WAITING_FULL = "registration_waiting_full";
     public static final String TYPE_ACTIVITY_SLOT_AVAILABLE = "activity_slot_available";
     public static final String TYPE_REGISTRATION_EXPIRED = "registration_expired";
+    public static final String TYPE_ACCOUNT_STATUS_CHANGED = "account_status_changed";
+    public static final String TYPE_ACCOUNT_APPEAL_RESULT = "account_appeal_result";
 
     public static final String RELATED_ACTIVITY = "activity";
     public static final String RELATED_PENDING_REVIEW = "pending_review";

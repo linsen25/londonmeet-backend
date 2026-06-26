@@ -63,10 +63,6 @@ public class WxLoginServiceImpl implements WxLoginService {
         User user = userRepository.findByOpenid(session.getOpenid())
                 .orElseGet(() -> createUser(session, nickname));
 
-        if (!USER_STATUS_ACTIVE.equals(user.getStatus())) {
-            throw new BusinessException(MessageConstant.ACCOUNT_DISABLED);
-        }
-
         user.setNickname(nickname);
         if (StringUtils.hasText(session.getUnionid())) {
             user.setUnionid(session.getUnionid());

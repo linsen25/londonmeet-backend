@@ -11,5 +11,4 @@ public class UserProfileStatsVO {
 
     private long ongoing;
 
-    private long likes;
 }

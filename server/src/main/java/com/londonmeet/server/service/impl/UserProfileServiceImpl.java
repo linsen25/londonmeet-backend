@@ -34,6 +34,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class UserProfileServiceImpl implements UserProfileService {
+    private static final String DEFAULT_MOTTO = "你好呀，准备好出去转转了么~";
+    private static final String DEFAULT_TAG = "未添加标签";
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final int MAX_NICKNAME_LENGTH = 30;
@@ -123,7 +125,6 @@ public class UserProfileServiceImpl implements UserProfileService {
                         now,
                         now
                 ))
-                .likes(activityRepository.sumLikeCountByCreatorUserId(user.getId()))
                 .build();
 
         return UserProfileVO.builder()
@@ -131,8 +132,9 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .nickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : "MeetFun User")
                 .avatarUrl(StringUtils.hasText(user.getAvatarUrl()) ? user.getAvatarUrl() : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(StringUtils.hasText(user.getCoverUrl()) ? user.getCoverUrl() : uploadProperties.getDefaultCoverUrl())
-                .motto(user.getMotto())
-                .tags(parseTags(user.getTagsJson()))
+                .motto(StringUtils.hasText(user.getMotto()) ? user.getMotto() : DEFAULT_MOTTO)
+                .tags(resolveDisplayTags(user.getTagsJson()))
+                .status(user.getStatus())
                 .stats(stats)
                 .build();
     }
@@ -205,6 +207,11 @@ public class UserProfileServiceImpl implements UserProfileService {
         } catch (JsonProcessingException ex) {
             return List.of();
         }
+    }
+
+    private List<String> resolveDisplayTags(String json) {
+        List<String> tags = parseTags(json);
+        return tags.isEmpty() ? List.of(DEFAULT_TAG) : tags;
     }
 
     private String resolveExtension(String originalFilename, String contentType) {

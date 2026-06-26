@@ -20,6 +20,8 @@ public class AdminReviewItemVO {
     private String targetName;
     private Double overallScore;
     private List<ReviewScoreRequest> scores;
+    private String reason;
+    private Boolean batchGood;
     private String status;
     private String adminNote;
     private Long handledBy;
@@ -28,4 +30,3 @@ public class AdminReviewItemVO {
     private Long updatedAt;
     private Long handledAt;
 }
-

@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: london-meet-backend
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
 
   servlet:
     multipart:
@@ -17,12 +19,13 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${JPA_FORMAT_SQL:false}
 
   flyway:
     enabled: true
@@ -49,6 +52,18 @@ management:
     web:
       exposure:
         include: health,info
+
+logging:
+  file:
+    name: ${LOG_FILE:logs/london-meet-backend.log}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    org.springframework: ${LOG_LEVEL_SPRING:INFO}
+    org.springframework.boot.autoconfigure: ${LOG_LEVEL_AUTOCONFIG:INFO}
+    org.springframework.web: ${LOG_LEVEL_WEB:INFO}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:WARN}
+    org.hibernate.orm.jdbc.bind: ${LOG_LEVEL_SQL_BIND:WARN}
 
 jwt:
   secret-key: londonmeetjwtsecretkeylondonmeetjwtsecretkey

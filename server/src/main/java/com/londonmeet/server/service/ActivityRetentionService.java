@@ -18,7 +18,7 @@ public class ActivityRetentionService {
 
     @Scheduled(cron = "0 20 3 * * *")
     @Transactional
-    public void deleteExpiredActivities() {
+    public void cleanExpiredActivityDetails() {
         Integer retentionDays = jdbcTemplate.queryForObject(
                 "SELECT CAST(setting_value AS UNSIGNED) FROM system_settings WHERE setting_key = ?",
                 Integer.class, "activity_detail_retention_days");
@@ -32,11 +32,29 @@ public class ActivityRetentionService {
                 """, cutoff);
         for (Map<String, Object> activity : activities) {
             long id = ((Number) activity.get("id")).longValue();
+            jdbcTemplate.update("""
+                    UPDATE activities
+                    SET archived_participant_count = (
+                        SELECT COUNT(*)
+                        FROM activity_registrations
+                        WHERE activity_id = ?
+                          AND status IN ('approved', 'joined_group')
+                    )
+                    WHERE id = ?
+                      AND archived_participant_count IS NULL
+                    """, id, id);
             jdbcTemplate.update("DELETE FROM activity_reports WHERE activity_id = ?", id);
             jdbcTemplate.update("DELETE FROM activity_favorites WHERE activity_id = ?", id);
-            jdbcTemplate.update("DELETE FROM activity_reviews WHERE activity_id = ?", id);
             jdbcTemplate.update("DELETE FROM activity_registrations WHERE activity_id = ?", id);
-            jdbcTemplate.update("DELETE FROM activities WHERE id = ?", id);
+            jdbcTemplate.update("""
+                    UPDATE activities
+                    SET content = NULL,
+                        image_urls_json = '[]',
+                        invite_qr_url = NULL,
+                        map_image_url = NULL,
+                        progress_gif = NULL
+                    WHERE id = ?
+                    """, id);
         }
     }
 }

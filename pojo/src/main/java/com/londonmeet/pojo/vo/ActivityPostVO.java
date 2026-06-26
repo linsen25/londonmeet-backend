@@ -17,10 +17,6 @@ public class ActivityPostVO {
 
     private String avatarUrl;
 
-    private Integer likeCount;
-
-    private Boolean liked;
-
     private Integer favoriteCount;
 
     private Boolean favorited;

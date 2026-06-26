@@ -17,6 +17,7 @@ public class ActivityReview {
     public static final String TARGET_ACTIVITY = "activity";
     public static final String TARGET_MEMBER = "member";
     public static final String STATUS_NORMAL = "NORMAL";
+    public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_EXCLUDED = "EXCLUDED";
     public static final long ACTIVITY_TARGET_ID = 0L;
 
@@ -41,6 +42,12 @@ public class ActivityReview {
 
     @Column(name = "scores_json", nullable = false, columnDefinition = "TEXT")
     private String scoresJson;
+
+    @Column(name = "reason", length = 300)
+    private String reason;
+
+    @Column(name = "batch_good", nullable = false)
+    private Boolean batchGood;
 
     @Column(name = "status", nullable = false, length = 20)
     private String status;
@@ -68,6 +75,9 @@ public class ActivityReview {
         }
         if (status == null) {
             status = STATUS_NORMAL;
+        }
+        if (batchGood == null) {
+            batchGood = false;
         }
         if (createdAt == null) {
             createdAt = now;

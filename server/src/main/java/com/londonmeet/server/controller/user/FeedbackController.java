@@ -36,7 +36,9 @@ public class FeedbackController {
         if (subject.length() > 100) throw new BusinessException("意见主题最多100字");
         if (content.length() > 1000) throw new BusinessException("意见内容最多1000字");
         UserFeedback saved = feedbackRepository.save(UserFeedback.builder()
-                .userId(loginUser.userId()).subject(subject).content(content).build());
+                .userId(loginUser.userId())
+                .type(UserFeedback.TYPE_FEEDBACK)
+                .subject(subject).content(content).build());
         notificationService.createNotification(
                 loginUser.userId(),
                 Notification.TYPE_FEEDBACK_RECEIVED,

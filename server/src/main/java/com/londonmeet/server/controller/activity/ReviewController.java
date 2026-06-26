@@ -2,8 +2,10 @@ package com.londonmeet.server.controller.activity;
 
 import com.londonmeet.common.response.ApiResponse;
 import com.londonmeet.pojo.dto.request.ReviewSubmitRequest;
+import com.londonmeet.pojo.dto.request.ReviewBatchGoodRequest;
 import com.londonmeet.pojo.vo.ReviewSubmitVO;
 import com.londonmeet.pojo.vo.ReviewTaskVO;
+import com.londonmeet.pojo.vo.ReviewBatchGoodVO;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.ReviewService;
 import lombok.RequiredArgsConstructor;
@@ -33,5 +35,13 @@ public class ReviewController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(reviewService.submit(request, loginUser));
+    }
+
+    @PostMapping("/batch-good")
+    public ApiResponse<ReviewBatchGoodVO> submitBatchGood(
+            @RequestBody ReviewBatchGoodRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(reviewService.submitBatchGood(request, loginUser));
     }
 }

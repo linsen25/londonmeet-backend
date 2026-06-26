@@ -32,4 +32,6 @@ public class ReviewTaskVO {
     private Double timelinessRating;
 
     private Integer reviewCount;
+
+    private Boolean canBatchGood;
 }

@@ -27,5 +27,7 @@ public class PendingReviewVO {
 
     private Double friendlyRating;
 
+    private Integer reviewCount;
+
     private Long appliedAt;
 }

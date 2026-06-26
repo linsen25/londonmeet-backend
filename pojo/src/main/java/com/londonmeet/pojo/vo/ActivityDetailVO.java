@@ -23,6 +23,10 @@ public class ActivityDetailVO {
 
     private Double organizerRating;
 
+    private String authorMotto;
+
+    private List<String> authorTags;
+
     private String coverUrl;
 
     private List<String> imageUrls;

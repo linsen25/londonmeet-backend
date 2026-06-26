@@ -61,6 +61,9 @@ public class ActivityRegistration {
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
     @Column(name = "joined_group_at")
     private LocalDateTime joinedGroupAt;
 

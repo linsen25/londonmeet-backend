@@ -34,8 +34,6 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final String USER_STATUS_ACTIVE = "ACTIVE";
-
     private final JwtProperties jwtProperties;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
@@ -57,10 +55,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String openid = claims.get(JwtClaimsConstant.OPENID, String.class);
 
             User user = userRepository.findById(userId)
-                    .filter(item -> USER_STATUS_ACTIVE.equals(item.getStatus()))
                     .orElseThrow(() -> new JwtException(MessageConstant.UNAUTHORIZED));
 
-            LoginUser loginUser = new LoginUser(user.getId(), openid, user.getRole());
+            LoginUser loginUser = new LoginUser(user.getId(), openid, user.getRole(), user.getStatus());
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     loginUser,
                     null,
@@ -93,6 +90,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setCharacterEncoding("UTF-8");
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(MessageConstant.UNAUTHORIZED));
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(401, MessageConstant.UNAUTHORIZED));
     }
 }

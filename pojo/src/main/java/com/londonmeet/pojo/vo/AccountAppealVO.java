@@ -5,18 +5,12 @@ import lombok.Data;
 
 @Data
 @Builder
-public class AdminFeedbackItemVO {
+public class AccountAppealVO {
     private Long id;
-    private Long userId;
-    private String nickname;
-    private String avatarUrl;
-    private String type;
-    private String userStatus;
-    private String disableReason;
-    private String subject;
     private String content;
     private String status;
     private String adminNote;
+    private String accountStatus;
     private Long createdAt;
     private Long handledAt;
 }

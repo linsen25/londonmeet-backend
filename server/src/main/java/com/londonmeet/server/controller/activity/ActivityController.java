@@ -3,15 +3,14 @@ package com.londonmeet.server.controller.activity;
 import com.londonmeet.common.response.ApiResponse;
 import com.londonmeet.pojo.dto.request.ActivityApplyRequest;
 import com.londonmeet.pojo.dto.request.ActivityCreateRequest;
-import com.londonmeet.pojo.dto.request.ActivityLikeRequest;
 import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
 import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
+import com.londonmeet.pojo.dto.request.ActivityEventRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
-import com.londonmeet.pojo.vo.ActivityLikeVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
 import com.londonmeet.pojo.vo.ActivityPageVO;
 import com.londonmeet.pojo.vo.ActivityPostVO;
@@ -157,14 +156,6 @@ public class ActivityController {
         return ApiResponse.success(activityService.cancelRegistration(id, request, loginUser));
     }
 
-    @PostMapping("/{id}/like")
-    public ApiResponse<ActivityLikeVO> updateLike(
-            @PathVariable Long id,
-            @RequestBody ActivityLikeRequest request
-    ) {
-        return ApiResponse.success(activityService.updateLike(id, request));
-    }
-
     @PostMapping("/{id}/favorite")
     public ApiResponse<ActivityFavoriteVO> updateFavorite(
             @PathVariable Long id,
@@ -181,5 +172,14 @@ public class ActivityController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(activityService.reportActivity(id, request, loginUser));
+    }
+
+    @PostMapping("/events")
+    public ApiResponse<Void> recordEvents(
+            @RequestBody ActivityEventRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        activityService.recordEvents(request, loginUser);
+        return ApiResponse.success();
     }
 }

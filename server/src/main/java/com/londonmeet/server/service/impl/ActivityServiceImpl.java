@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.pojo.dto.request.ActivityApplyRequest;
 import com.londonmeet.pojo.dto.request.ActivityCreateRequest;
-import com.londonmeet.pojo.dto.request.ActivityLikeRequest;
 import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
@@ -14,6 +13,7 @@ import com.londonmeet.pojo.dto.request.ActivityReportRequest;
 import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
+import com.londonmeet.pojo.dto.request.ActivityEventRequest;
 import com.londonmeet.pojo.entity.Activity;
 import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityFavorite;
@@ -23,7 +23,6 @@ import com.londonmeet.pojo.entity.Notification;
 import com.londonmeet.pojo.entity.Tag;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
-import com.londonmeet.pojo.vo.ActivityLikeVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
 import com.londonmeet.pojo.vo.ActivityPageVO;
 import com.londonmeet.pojo.vo.ActivityPostVO;
@@ -48,6 +47,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -66,6 +66,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ActivityServiceImpl implements ActivityService {
+    private static final String DEFAULT_PROFILE_MOTTO = "你好呀，准备好出去转转了么~";
+    private static final String DEFAULT_PROFILE_TAG = "未添加标签";
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final List<String> CAPACITY_STATUSES = List.of(
@@ -94,6 +96,10 @@ public class ActivityServiceImpl implements ActivityService {
     private final NotificationService notificationService;
     private final NotificationRepository notificationRepository;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbcTemplate;
+
+    private static final Set<String> ANALYTICS_EVENT_TYPES =
+            Set.of("EXPOSURE", "DETAIL_VIEW", "QR_OPEN");
 
     @Override
     @Transactional
@@ -177,6 +183,50 @@ public class ActivityServiceImpl implements ActivityService {
                 saved.getId()
         );
         return toPostVO(saved, false);
+    }
+
+    @Override
+    @Transactional
+    public void recordEvents(ActivityEventRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        if (request == null || !StringUtils.hasText(request.getEventType())) {
+            throw new BusinessException("Event type is required.");
+        }
+        String eventType = request.getEventType().trim().toUpperCase();
+        if (!ANALYTICS_EVENT_TYPES.contains(eventType)) {
+            throw new BusinessException("Unsupported analytics event.");
+        }
+        List<Long> activityIds = request.getActivityIds() == null
+                ? List.of()
+                : request.getActivityIds().stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .limit(50)
+                .toList();
+        if (activityIds.isEmpty()) {
+            return;
+        }
+        Map<Long, Activity> activityMap = activityRepository.findAllById(activityIds).stream()
+                .collect(Collectors.toMap(Activity::getId, Function.identity()));
+        LocalDateTime hour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
+        for (Long activityId : activityIds) {
+            Activity activity = activityMap.get(activityId);
+            if (activity == null) continue;
+            if ("QR_OPEN".equals(eventType)) {
+                if ("DISABLED".equals(loginUser.status())) continue;
+                if (!canOpenActivityQr(activity, LocalDateTime.now())) continue;
+                boolean approvedParticipant = activityRegistrationRepository
+                        .findByActivityIdAndUserId(activityId, userId)
+                        .map(registration -> CAPACITY_STATUSES.contains(registration.getStatus()))
+                        .orElse(false);
+                if (!approvedParticipant) continue;
+            }
+            jdbcTemplate.update("""
+                    INSERT IGNORE INTO activity_analytics_events
+                        (user_id, activity_id, event_type, event_hour, created_at)
+                    VALUES (?, ?, ?, ?, NOW())
+                    """, userId, activityId, eventType, hour);
+        }
     }
 
     @Override
@@ -383,6 +433,12 @@ public class ActivityServiceImpl implements ActivityService {
                             .punctualRating(memberRatings.get("punctual"))
                             .communicationRating(memberRatings.get("communication"))
                             .friendlyRating(memberRatings.get("friendly"))
+                            .reviewCount(activityReviewRepository
+                                    .countByTargetTypeAndTargetIdAndStatusAndCreatedAtGreaterThanEqual(
+                                            ActivityReview.TARGET_MEMBER,
+                                            registration.getUserId(),
+                                            ActivityReview.STATUS_NORMAL,
+                                            LocalDateTime.now().minusDays(30)))
                             .appliedAt(toEpochMillis(registration.getCreatedAt()))
                             .build();
                 })
@@ -394,7 +450,10 @@ public class ActivityServiceImpl implements ActivityService {
                 ActivityReview.TARGET_MEMBER,
                 userId,
                 ActivityReview.STATUS_NORMAL
-        );
+        ).stream()
+                .filter(review -> review.getCreatedAt() != null
+                        && !review.getCreatedAt().isBefore(LocalDateTime.now().minusDays(30)))
+                .toList();
         if (reviews.isEmpty()) {
             return Map.of();
         }
@@ -440,11 +499,16 @@ public class ActivityServiceImpl implements ActivityService {
             isCreator = loginUser.userId().equals(activity.getCreatorUserId());
         }
 
+        if (!STATUS_PUBLISHED.equals(activity.getStatus()) && !isCreator) {
+            throw new BusinessException("Activity is not available.");
+        }
+
         boolean favorited = loginUser != null
                 && loginUser.userId() != null
                 && activityFavoriteRepository.findByUserIdAndActivityId(loginUser.userId(), id).isPresent();
 
-        return toDetailVO(activity, registration.orElse(null), isCreator, favorited);
+        boolean canExposeQr = loginUser == null || !"DISABLED".equals(loginUser.status());
+        return toDetailVO(activity, registration.orElse(null), isCreator, favorited, canExposeQr);
     }
 
     @Override
@@ -521,7 +585,7 @@ public class ActivityServiceImpl implements ActivityService {
                 "活动信息已变更",
                 "您参加的「" + saved.getTitle() + "」信息已变更，请前往主页—活动中查看。"
         );
-        return toDetailVO(saved, null, true, false);
+        return toDetailVO(saved, null, true, false, true);
     }
 
     @Override
@@ -550,7 +614,7 @@ public class ActivityServiceImpl implements ActivityService {
                 "群二维码已更新",
                 "「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
         );
-        return toDetailVO(saved, null, true, false);
+        return toDetailVO(saved, null, true, false, true);
     }
 
     @Override
@@ -594,6 +658,7 @@ public class ActivityServiceImpl implements ActivityService {
             registration.setNoticeCode(ActivityRegistration.NOTICE_APPLICATION_SUBMITTED);
             registration.setReviewedAt(null);
             registration.setReviewedBy(null);
+            registration.setApprovedAt(null);
             registration.setJoinedGroupAt(null);
             registration.setApplicationText(applicationText);
             registration.setCancellationReasonType(null);
@@ -621,6 +686,13 @@ public class ActivityServiceImpl implements ActivityService {
     @Transactional
     public ActivityRegistrationVO joinGroup(Long id, LoginUser loginUser) {
         Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findLockedById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+
+        if (!canOpenActivityQr(activity, LocalDateTime.now())) {
+            throw new BusinessException("Activity group QR is not available.");
+        }
+
         ActivityRegistration registration = activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
                 .orElseThrow(() -> new BusinessException("Registration not found."));
 
@@ -718,34 +790,6 @@ public class ActivityServiceImpl implements ActivityService {
                 ActivityRegistration.STATUS_REJECTED,
                 ActivityRegistration.NOTICE_REJECTED
         );
-    }
-
-    @Override
-    @Transactional
-    public ActivityLikeVO updateLike(Long id, ActivityLikeRequest request) {
-        Activity activity = activityRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-
-        boolean liked = request != null && Boolean.TRUE.equals(request.getLiked());
-        boolean wasLiked = Boolean.TRUE.equals(activity.getLiked());
-        int likeCount = activity.getLikeCount() == null ? 0 : activity.getLikeCount();
-
-        if (liked && !wasLiked) {
-            likeCount += 1;
-        } else if (!liked && wasLiked) {
-            likeCount = Math.max(0, likeCount - 1);
-        }
-
-        activity.setLiked(liked);
-        activity.setLikeCount(likeCount);
-
-        Activity saved = activityRepository.save(activity);
-
-        return ActivityLikeVO.builder()
-                .id(saved.getId())
-                .liked(saved.getLiked())
-                .likeCount(saved.getLikeCount())
-                .build();
     }
 
     @Override
@@ -882,8 +926,6 @@ public class ActivityServiceImpl implements ActivityService {
                 .authorName(activity.getAuthorName())
                 .coverUrl(activity.getCoverUrl())
                 .avatarUrl(activity.getAvatarUrl())
-                .likeCount(activity.getLikeCount())
-                .liked(activity.getLiked())
                 .favoriteCount(activity.getFavoriteCount())
                 .favorited(favorited)
                 .progressPct(calculateCapacityProgressPct(joinedCount, totalCount))
@@ -899,9 +941,12 @@ public class ActivityServiceImpl implements ActivityService {
             Activity activity,
             ActivityRegistration registration,
             boolean isCreator,
-            boolean favorited
+            boolean favorited,
+            boolean canExposeQr
     ) {
-        int joinedCount = capacityCount(activity.getId());
+        int joinedCount = activity.getArchivedParticipantCount() == null
+                ? capacityCount(activity.getId())
+                : activity.getArchivedParticipantCount().intValue();
         int totalCount = activity.getRecruitCount() == null ? 0 : activity.getRecruitCount();
         List<String> images = parseStringList(activity.getImageUrlsJson());
         if (images.isEmpty() && StringUtils.hasText(activity.getCoverUrl())) {
@@ -910,10 +955,23 @@ public class ActivityServiceImpl implements ActivityService {
         List<String> tags = parseStringList(activity.getTagsJson());
         Double organizerRating = activity.getCreatorUserId() == null
                 ? null
-                : activityReviewRepository.findAverageActivityRatingByCreatorUserId(
+                : activityReviewRepository.findRecentAverageActivityRatingByCreatorUserId(
                         activity.getCreatorUserId(),
-                        ActivityReview.TARGET_ACTIVITY
+                        ActivityReview.TARGET_ACTIVITY,
+                        LocalDateTime.now().minusDays(30)
                 );
+        User organizer = activity.getCreatorUserId() == null
+                ? null
+                : userRepository.findById(activity.getCreatorUserId()).orElse(null);
+        String authorMotto = organizer != null && StringUtils.hasText(organizer.getMotto())
+                ? organizer.getMotto().trim()
+                : DEFAULT_PROFILE_MOTTO;
+        List<String> authorTags = organizer == null
+                ? List.of(DEFAULT_PROFILE_TAG)
+                : parseStringList(organizer.getTagsJson());
+        if (authorTags.isEmpty()) {
+            authorTags = List.of(DEFAULT_PROFILE_TAG);
+        }
 
         return ActivityDetailVO.builder()
                 .id(activity.getId())
@@ -923,6 +981,8 @@ public class ActivityServiceImpl implements ActivityService {
                 .authorUserId(activity.getCreatorUserId())
                 .authorAvatarUrl(activity.getAvatarUrl())
                 .organizerRating(organizerRating)
+                .authorMotto(authorMotto)
+                .authorTags(authorTags)
                 .coverUrl(activity.getCoverUrl())
                 .imageUrls(images)
                 .tags(tags)
@@ -937,7 +997,8 @@ public class ActivityServiceImpl implements ActivityService {
                 .favorited(favorited)
                 .locationText(activity.getLocationText())
                 .mapImageUrl(activity.getMapImageUrl())
-                .inviteQrUrl(canViewInviteQr(isCreator, registration) ? activity.getInviteQrUrl() : null)
+                .inviteQrUrl(canExposeQr && canViewInviteQr(isCreator, registration)
+                        ? activity.getInviteQrUrl() : null)
                 .qrExpiresAt(toEpochMillis(activity.getQrExpiresAt()))
                 .editCount(activity.getEditCount() == null ? 0 : activity.getEditCount())
                 .canEdit(isCreator && canEdit(activity))
@@ -975,6 +1036,15 @@ public class ActivityServiceImpl implements ActivityService {
 
     private boolean canViewInviteQr(boolean isCreator, ActivityRegistration registration) {
         return isCreator || (registration != null && CAPACITY_STATUSES.contains(registration.getStatus()));
+    }
+
+    private boolean canOpenActivityQr(Activity activity, LocalDateTime now) {
+        return STATUS_PUBLISHED.equals(activity.getStatus())
+                && activity.getEndAt() != null
+                && activity.getEndAt().isAfter(now)
+                && StringUtils.hasText(activity.getInviteQrUrl())
+                && activity.getQrExpiresAt() != null
+                && activity.getQrExpiresAt().isAfter(now);
     }
 
     private void notifyApprovedParticipants(
@@ -1039,6 +1109,9 @@ public class ActivityServiceImpl implements ActivityService {
         registration.setNoticeCode(noticeCode);
         registration.setReviewedBy(reviewerId);
         registration.setReviewedAt(LocalDateTime.now());
+        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus)) {
+            registration.setApprovedAt(LocalDateTime.now());
+        }
 
         registration = activityRegistrationRepository.save(registration);
         notifyRegistrationReviewed(activity, registration, targetStatus);

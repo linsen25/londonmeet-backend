@@ -23,7 +23,22 @@ public class AdminDashboardVO {
 
     private Long endedActivityCount;
 
+    private Long hiddenActivityCount;
+
+    private Long cancelledActivityCount;
+
+    private Long newUserCount;
+    private Long activeUserCount;
+    private Long newActivityCount;
+    private Long periodRegistrationCount;
+    private Long approvedRegistrationCount;
+    private Long cancelledRegistrationCount;
+    private Long pendingAppealCount;
+    private Long pendingReviewCount;
+
     private List<DailyCount> activityTrend;
+
+    private List<DailyOverview> dailyTrend;
 
     @Data
     @Builder
@@ -32,5 +47,16 @@ public class AdminDashboardVO {
         private String date;
 
         private Long count;
+    }
+
+    @Data
+    @Builder
+    public static class DailyOverview {
+        private String date;
+        private Long newUsers;
+        private Long activeUsers;
+        private Long activities;
+        private Long registrations;
+        private Long approved;
     }
 }

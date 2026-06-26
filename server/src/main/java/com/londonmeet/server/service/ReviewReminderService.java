@@ -94,6 +94,9 @@ public class ReviewReminderService {
         if (activityPending) {
             return true;
         }
+        if (!userId.equals(creatorUserId)) {
+            return false;
+        }
         return participantIds.stream()
                 .filter(targetId -> !targetId.equals(userId))
                 .anyMatch(targetId ->

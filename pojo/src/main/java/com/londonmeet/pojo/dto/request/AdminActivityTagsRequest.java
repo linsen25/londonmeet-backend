@@ -7,4 +7,6 @@ import java.util.List;
 @Data
 public class AdminActivityTagsRequest {
     private List<Long> tagIds;
+
+    private String reason;
 }
