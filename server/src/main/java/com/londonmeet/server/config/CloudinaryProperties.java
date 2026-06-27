@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "cloudinary")
 public class CloudinaryProperties {
 
-    private String cloudName = "ddkqatprj";
+    private String cloudName = "";
 
-    private String uploadPreset = "londonmeet";
+    private String uploadPreset = "";
 }

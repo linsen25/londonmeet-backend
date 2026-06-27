@@ -15,6 +15,8 @@ public class LoginUserVO {
      */
     private Long userId;
 
+    private String publicId;
+
     /**
      * 微信 openid
      */

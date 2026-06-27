@@ -19,11 +19,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     Optional<User> findByOpenid(String openid);
 
+    Optional<User> findByPublicId(String publicId);
+
     @Query("""
             select u from User u
             where u.role = 'USER'
               and (:keyword is null or lower(u.nickname) like lower(concat('%', :keyword, '%'))
-                   or cast(u.id as string) = :keyword)
+                   or lower(u.publicId) = lower(:keyword))
               and (:status is null or u.status = :status)
             """)
     Page<User> findAdminUsers(

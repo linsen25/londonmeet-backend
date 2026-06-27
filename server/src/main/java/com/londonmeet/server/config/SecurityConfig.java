@@ -36,8 +36,6 @@ public class SecurityConfig {
                                 "/api/auth/wechat-login",
                                 "/api/admin/auth/login",
                                 "/wx/login",
-                                "/uploads/avatar/**",
-                                "/uploads/cover/**",
                                 "/api/v1/uploads/image-proxy",
                                 "/api/map/image-proxy",
                                 "/api/v1/tags",

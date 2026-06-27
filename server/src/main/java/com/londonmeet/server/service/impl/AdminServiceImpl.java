@@ -821,6 +821,7 @@ public class AdminServiceImpl implements AdminService {
         List<AdminUserItemVO> items = result.getContent().stream().map(user ->
                 AdminUserItemVO.builder()
                         .id(user.getId())
+                        .publicId(user.getPublicId())
                         .nickname(resolveName(user))
                         .avatarUrl(user.getAvatarUrl())
                         .status(user.getStatus())

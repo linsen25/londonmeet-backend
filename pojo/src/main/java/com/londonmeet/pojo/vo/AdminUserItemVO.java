@@ -7,6 +7,7 @@ import lombok.Data;
 @Builder
 public class AdminUserItemVO {
     private Long id;
+    private String publicId;
     private String nickname;
     private String avatarUrl;
     private String status;

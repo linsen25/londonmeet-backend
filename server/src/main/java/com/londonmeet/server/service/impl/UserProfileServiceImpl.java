@@ -6,12 +6,14 @@ import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.pojo.dto.request.UserProfileUpdateRequest;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.vo.CoverUploadVO;
+import com.londonmeet.pojo.vo.ImageUploadVO;
 import com.londonmeet.pojo.vo.UserProfileStatsVO;
 import com.londonmeet.pojo.vo.UserProfileVO;
 import com.londonmeet.server.config.UploadProperties;
 import com.londonmeet.server.repository.ActivityRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.security.LoginUser;
+import com.londonmeet.server.service.CloudinaryImageService;
 import com.londonmeet.server.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,17 +21,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -42,11 +38,12 @@ public class UserProfileServiceImpl implements UserProfileService {
     private static final int MAX_MOTTO_LENGTH = 100;
     private static final int MAX_TAGS = 3;
     private static final int MAX_TAG_LENGTH = 10;
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
+    private static final long MAX_COVER_BYTES = 8 * 1024 * 1024;
 
     private final UserRepository userRepository;
     private final ActivityRepository activityRepository;
     private final UploadProperties uploadProperties;
+    private final CloudinaryImageService cloudinaryImageService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -78,27 +75,8 @@ public class UserProfileServiceImpl implements UserProfileService {
             throw new BusinessException("Cover file is required.");
         }
 
-        String extension = resolveExtension(file.getOriginalFilename(), file.getContentType());
-        if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new BusinessException("Only jpg, png, and webp cover images are supported.");
-        }
-
-        String filename = user.getId() + "-" + UUID.randomUUID() + "." + extension;
-        Path uploadDir = Path.of(uploadProperties.getCoverDir()).toAbsolutePath().normalize();
-        Path target = uploadDir.resolve(filename).normalize();
-
-        if (!target.startsWith(uploadDir)) {
-            throw new BusinessException("Invalid cover upload path.");
-        }
-
-        try {
-            Files.createDirectories(uploadDir);
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException ex) {
-            throw new BusinessException("Failed to save cover file.");
-        }
-
-        String coverUrl = normalizePrefix(uploadProperties.getCoverUrlPrefix(), "/uploads/cover") + "/" + filename;
+        ImageUploadVO uploaded = cloudinaryImageService.upload(file, "londonmeet/cover", MAX_COVER_BYTES);
+        String coverUrl = uploaded.getSecureUrl();
         user.setCoverUrl(coverUrl);
         userRepository.save(user);
 
@@ -129,6 +107,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
         return UserProfileVO.builder()
                 .userId(user.getId())
+                .publicId(user.getPublicId())
                 .nickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : "MeetFun User")
                 .avatarUrl(StringUtils.hasText(user.getAvatarUrl()) ? user.getAvatarUrl() : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(StringUtils.hasText(user.getCoverUrl()) ? user.getCoverUrl() : uploadProperties.getDefaultCoverUrl())
@@ -214,32 +193,4 @@ public class UserProfileServiceImpl implements UserProfileService {
         return tags.isEmpty() ? List.of(DEFAULT_TAG) : tags;
     }
 
-    private String resolveExtension(String originalFilename, String contentType) {
-        String filename = originalFilename == null ? "" : originalFilename;
-        int dotIndex = filename.lastIndexOf('.');
-        if (dotIndex >= 0 && dotIndex < filename.length() - 1) {
-            return filename.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
-        }
-        if ("image/png".equalsIgnoreCase(contentType)) {
-            return "png";
-        }
-        if ("image/webp".equalsIgnoreCase(contentType)) {
-            return "webp";
-        }
-        return "jpg";
-    }
-
-    private String normalizePrefix(String value, String fallback) {
-        if (!StringUtils.hasText(value)) {
-            return fallback;
-        }
-        String result = value.trim();
-        if (!result.startsWith("/")) {
-            result = "/" + result;
-        }
-        if (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result;
-    }
 }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * 用户实体类
@@ -23,6 +24,9 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "public_id", nullable = false, unique = true, length = 40)
+    private String publicId;
 
     /**
      * 微信小程序唯一标识
@@ -99,6 +103,10 @@ public class User {
     @PrePersist
     public void prePersist() {
         LocalDateTime now = LocalDateTime.now();
+
+        if (publicId == null || publicId.isBlank()) {
+            publicId = "usr_" + UUID.randomUUID().toString().replace("-", "");
+        }
 
         if (role == null) {
             role = "USER";

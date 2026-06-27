@@ -9,15 +9,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "upload")
 public class UploadProperties {
 
-    private String avatarDir = "server/uploads/avatar";
-
-    private String avatarUrlPrefix = "/uploads/avatar";
-
-    private String defaultAvatarUrl = "/uploads/avatar/default-avatar.png";
-
-    private String coverDir = "server/uploads/cover";
-
-    private String coverUrlPrefix = "/uploads/cover";
+    private String defaultAvatarUrl = "https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar";
 
     private String defaultCoverUrl = "";
 }

@@ -20,8 +20,11 @@ import com.londonmeet.pojo.vo.AdminReviewActivityPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
 import com.londonmeet.pojo.vo.AdminActivityAnalyticsVO;
 import com.londonmeet.pojo.vo.AdminUserAnalyticsVO;
+import com.londonmeet.common.exception.BusinessException;
+import com.londonmeet.server.security.AdminLoginAttemptLimiter;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.AdminService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -38,10 +41,24 @@ import java.util.List;
 public class AdminController {
 
     private final AdminService adminService;
+    private final AdminLoginAttemptLimiter adminLoginAttemptLimiter;
 
     @PostMapping("/auth/login")
-    public ApiResponse<AdminLoginVO> login(@RequestBody AdminLoginRequest request) {
-        return ApiResponse.success(adminService.login(request));
+    public ApiResponse<AdminLoginVO> login(
+            @RequestBody AdminLoginRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        String clientIp = resolveClientIp(servletRequest);
+        String username = request == null ? "" : request.getUsername();
+        adminLoginAttemptLimiter.checkAllowed(username, clientIp);
+        try {
+            AdminLoginVO result = adminService.login(request);
+            adminLoginAttemptLimiter.recordSuccess(username, clientIp);
+            return ApiResponse.success(result);
+        } catch (BusinessException exception) {
+            adminLoginAttemptLimiter.recordFailure(username, clientIp);
+            throw exception;
+        }
     }
 
     @GetMapping("/dashboard")
@@ -296,5 +313,17 @@ public class AdminController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(adminService.getUserAnalytics(startDate, endDate, loginUser));
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
     }
 }

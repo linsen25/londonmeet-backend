@@ -11,6 +11,8 @@ public class UserProfileVO {
 
     private Long userId;
 
+    private String publicId;
+
     private String nickname;
 
     private String avatarUrl;

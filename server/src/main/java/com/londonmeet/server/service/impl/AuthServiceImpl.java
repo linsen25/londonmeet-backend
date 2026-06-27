@@ -9,13 +9,12 @@ import com.londonmeet.pojo.dto.request.WechatLoginRequest;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.vo.LoginUserVO;
 import com.londonmeet.server.config.UploadProperties;
+import com.londonmeet.server.repository.ActivityRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.service.AuthService;
 import com.londonmeet.server.service.WechatCode2SessionClient;
 import com.londonmeet.server.service.WechatCode2SessionClient.WechatSession;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -23,6 +22,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * User authentication service.
@@ -31,11 +31,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
     private static final String USER_STATUS_ACTIVE = "ACTIVE";
-    private static final String MOCK_OPENID_PREFIX = "mock-openid-";
 
     private final UserRepository userRepository;
+    private final ActivityRepository activityRepository;
     private final JwtProperties jwtProperties;
     private final UploadProperties uploadProperties;
     private final WechatCode2SessionClient wechatCode2SessionClient;
@@ -46,22 +45,24 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public LoginUserVO wechatLogin(WechatLoginRequest request) {
-        log.info("WECHAT_LOGIN STEP 1 resolve session");
-        WechatSession session = resolveWechatSession(request);
-        log.info("WECHAT_LOGIN STEP 2 session openid={}", session.getOpenid());
+        WechatSession session = wechatCode2SessionClient.exchange(request.getCode());
 
         User user = userRepository.findByOpenid(session.getOpenid())
                 .orElseGet(() -> createUser(session, request));
-        log.info("WECHAT_LOGIN STEP 3 user loaded id={}", user.getId());
 
         if (StringUtils.hasText(session.getUnionid())) {
             user.setUnionid(session.getUnionid());
         }
-        if (StringUtils.hasText(request.getNickname())) {
-            user.setNickname(request.getNickname());
+        String nickname = trimToNull(request.getNickname());
+        String avatarUrl = trimToNull(request.getAvatarUrl());
+        if (StringUtils.hasText(nickname)) {
+            user.setNickname(nickname);
         }
-        if (StringUtils.hasText(request.getAvatarUrl())) {
-            user.setAvatarUrl(request.getAvatarUrl());
+        if (!StringUtils.hasText(user.getNickname())) {
+            user.setNickname(defaultNickname(session));
+        }
+        if (StringUtils.hasText(avatarUrl)) {
+            user.setAvatarUrl(avatarUrl);
         }
         if (!StringUtils.hasText(user.getAvatarUrl())) {
             user.setAvatarUrl(uploadProperties.getDefaultAvatarUrl());
@@ -71,16 +72,13 @@ public class AuthServiceImpl implements AuthService {
         }
         user.setLastLoginAt(LocalDateTime.now());
 
-        log.info("WECHAT_LOGIN STEP 4 save user");
         User savedUser = userRepository.save(user);
-        log.info("WECHAT_LOGIN STEP 5 saved user id={}", savedUser.getId());
-
-        log.info("WECHAT_LOGIN STEP 6 generate token");
+        syncCreatedActivities(savedUser);
         String token = generateToken(savedUser);
-        log.info("WECHAT_LOGIN STEP 7 token generated");
 
         return LoginUserVO.builder()
                 .userId(savedUser.getId())
+                .publicId(savedUser.getPublicId())
                 .openid(savedUser.getOpenid())
                 .nickname(savedUser.getNickname())
                 .avatarUrl(savedUser.getAvatarUrl())
@@ -88,13 +86,6 @@ public class AuthServiceImpl implements AuthService {
                 .status(savedUser.getStatus())
                 .token(token)
                 .build();
-    }
-
-    private WechatSession resolveWechatSession(WechatLoginRequest request) {
-        if (StringUtils.hasText(request.getOpenid())) {
-            return new WechatSession(request.getOpenid(), null, null);
-        }
-        return wechatCode2SessionClient.exchange(request.getCode());
     }
 
     private String generateToken(User user) {
@@ -113,8 +104,10 @@ public class AuthServiceImpl implements AuthService {
         return User.builder()
                 .openid(session.getOpenid())
                 .unionid(session.getUnionid())
-                .nickname(StringUtils.hasText(request.getNickname()) ? request.getNickname() : defaultNickname(session))
-                .avatarUrl(StringUtils.hasText(request.getAvatarUrl()) ? request.getAvatarUrl() : uploadProperties.getDefaultAvatarUrl())
+                .nickname(StringUtils.hasText(trimToNull(request.getNickname()))
+                        ? trimToNull(request.getNickname()) : defaultNickname(session))
+                .avatarUrl(StringUtils.hasText(trimToNull(request.getAvatarUrl()))
+                        ? trimToNull(request.getAvatarUrl()) : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(uploadProperties.getDefaultCoverUrl())
                 .role("USER")
                 .status(USER_STATUS_ACTIVE)
@@ -123,6 +116,18 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String defaultNickname(WechatSession session) {
-        return session.getOpenid().startsWith(MOCK_OPENID_PREFIX) ? "Mock User" : "New User";
+        return "用户" + ThreadLocalRandom.current().nextInt(10000, 100000);
+    }
+
+    private void syncCreatedActivities(User user) {
+        activityRepository.updateAuthorNameByCreatorUserId(user.getId(), user.getNickname());
+        activityRepository.updateAvatarUrlByCreatorUserId(user.getId(), user.getAvatarUrl());
+    }
+
+    private String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
     }
 }

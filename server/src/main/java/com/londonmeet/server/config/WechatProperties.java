@@ -22,8 +22,4 @@ public class WechatProperties {
      */
     private String secret;
 
-    /**
-     * Keep enabled while testing without a real mini program page.
-     */
-    private boolean mockEnabled = true;
 }

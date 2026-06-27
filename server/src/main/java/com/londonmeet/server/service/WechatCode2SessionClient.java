@@ -2,6 +2,9 @@ package com.londonmeet.server.service;
 
 import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.server.config.WechatProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -23,24 +26,13 @@ public class WechatCode2SessionClient {
 
     private static final Logger log = LoggerFactory.getLogger(WechatCode2SessionClient.class);
     private static final String CODE2_SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session";
-    private static final String DEFAULT_MOCK_OPENID = "mock-openid-local-user";
 
     private final WechatProperties wechatProperties;
+    private final ObjectMapper objectMapper;
 
     public WechatSession exchange(String code) {
         if (!StringUtils.hasText(code)) {
-            throw new BusinessException("code or openid is required.");
-        }
-
-        if (wechatProperties.isMockEnabled()) {
-            String mockOpenid = DEFAULT_MOCK_OPENID;
-            if (code.startsWith("mock:")) {
-                String normalizedCode = code.substring("mock:".length()).replaceAll("[^A-Za-z0-9_-]", "");
-                if (StringUtils.hasText(normalizedCode)) {
-                    mockOpenid = "mock-openid-" + normalizedCode;
-                }
-            }
-            return new WechatSession(mockOpenid, null, null);
+            throw new BusinessException("WeChat login code is required.");
         }
 
         if (!StringUtils.hasText(wechatProperties.getAppId()) || !StringUtils.hasText(wechatProperties.getSecret())) {
@@ -54,20 +46,29 @@ public class WechatCode2SessionClient {
                 .queryParam("grant_type", "authorization_code")
                 .toUriString();
 
-        Map<?, ?> response;
+        String responseBody;
         try {
-            response = RestClient.create()
+            responseBody = RestClient.create()
                     .get()
                     .uri(uri)
                     .retrieve()
-                    .body(Map.class);
+                    .body(String.class);
         } catch (RestClientException ex) {
             log.error("Wechat code2Session HTTP call failed. code={}", maskCode(code), ex);
             throw new BusinessException("Failed to call WeChat code2Session.");
         }
 
-        if (response == null) {
+        if (!StringUtils.hasText(responseBody)) {
             throw new BusinessException("Empty response from WeChat.");
+        }
+
+        Map<String, Object> response;
+        try {
+            response = objectMapper.readValue(responseBody, new TypeReference<>() {
+            });
+        } catch (JsonProcessingException ex) {
+            log.error("Wechat code2Session returned invalid JSON. code={}, body={}", maskCode(code), responseBody, ex);
+            throw new BusinessException("Invalid response from WeChat.");
         }
 
         Object errcode = response.get("errcode");

@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 spring:
   application:
@@ -13,9 +13,9 @@ spring:
       max-request-size: 10MB
 
   datasource:
-    url: jdbc:mysql://localhost:3306/london_meet?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: root123456
+    url: ${DB_URL:jdbc:mysql://localhost:3306/london_meet?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
@@ -32,17 +32,6 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-
-  rabbitmq:
-    host: ${RABBITMQ_HOST:localhost}
-    port: ${RABBITMQ_PORT:5672}
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
-
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
@@ -54,8 +43,6 @@ management:
         include: health,info
 
 logging:
-  file:
-    name: ${LOG_FILE:logs/london-meet-backend.log}
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     org.springframework: ${LOG_LEVEL_SPRING:INFO}
@@ -66,7 +53,7 @@ logging:
     org.hibernate.orm.jdbc.bind: ${LOG_LEVEL_SQL_BIND:WARN}
 
 jwt:
-  secret-key: londonmeetjwtsecretkeylondonmeetjwtsecretkey
+  secret-key: ${JWT_SECRET:londonmeetjwtsecretkeylondonmeetjwtsecretkey}
   expiration: ${JWT_EXPIRATION:604800000}
 
 admin:
@@ -74,22 +61,17 @@ admin:
   password: ${ADMIN_PASSWORD:admin}
 
 wechat:
-  mock-enabled: true
-  app-id: wx1f685f2109d776a0
-  secret: edd9927fb9d9e2fdc2113fd014dd95d2
+  app-id: ${WECHAT_APP_ID:}
+  secret: ${WECHAT_APP_SECRET:${WECHAT_SECRET:}}
   
 upload:
-  avatar-dir: ${AVATAR_UPLOAD_DIR:server/uploads/avatar}
-  avatar-url-prefix: /uploads/avatar
-  default-avatar-url: /uploads/avatar/default-avatar.png
-  cover-dir: ${COVER_UPLOAD_DIR:server/uploads/cover}
-  cover-url-prefix: /uploads/cover
+  default-avatar-url: ${DEFAULT_AVATAR_URL:https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar}
   default-cover-url: ""
 
 cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:ddkqatprj}
-  upload-preset: ${CLOUDINARY_UPLOAD_PRESET:londonmeet}
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  upload-preset: ${CLOUDINARY_UPLOAD_PRESET:}
 
 google:
   maps:
-    api-key: AIzaSyCnzsmZhct_1gQyVg1-_D7gz9LbKylYdMo
+    api-key: ${GOOGLE_MAPS_API_KEY:}
