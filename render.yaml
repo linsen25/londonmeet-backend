@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: londonmeet-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: WECHAT_APP_ID
+        sync: false
+      - key: WECHAT_APP_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_UPLOAD_PRESET
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: JWT_EXPIRATION
+        value: 604800000
+      - key: DEFAULT_AVATAR_URL
+        value: https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar
