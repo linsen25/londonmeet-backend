@@ -68,6 +68,7 @@ WECHAT_APP_SECRET
 CLOUDINARY_CLOUD_NAME
 CLOUDINARY_UPLOAD_PRESET
 GOOGLE_MAPS_API_KEY
+CORS_ALLOWED_ORIGINS
 ```
 
 Optional environment variables:
@@ -77,3 +78,6 @@ PORT
 JWT_EXPIRATION
 DEFAULT_AVATAR_URL
 ```
+
+Set `CORS_ALLOWED_ORIGINS` to the deployed admin console origin, for example
+`https://your-admin-domain.onrender.com`.
