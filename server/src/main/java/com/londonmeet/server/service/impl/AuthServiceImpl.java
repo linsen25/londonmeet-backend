@@ -60,6 +60,9 @@ public class AuthServiceImpl implements AuthService {
         }
         if (!StringUtils.hasText(user.getNickname())) {
             user.setNickname(defaultNickname(user));
+        } else if (isDefaultNickname(user.getNickname())
+                && !user.getNickname().equals(defaultNickname(user))) {
+            user.setNickname(defaultNickname(user));
         }
         if (StringUtils.hasText(avatarUrl)) {
             user.setAvatarUrl(avatarUrl);
@@ -125,6 +128,10 @@ public class AuthServiceImpl implements AuthService {
 
     private String defaultNickname(String publicUserId) {
         return "用户" + publicUserId;
+    }
+
+    private boolean isDefaultNickname(String nickname) {
+        return StringUtils.hasText(nickname) && nickname.matches("用户\\d{5}");
     }
 
     private String generatePublicUserId() {

@@ -58,6 +58,9 @@ public class WxLoginServiceImpl implements WxLoginService {
         }
         if (!StringUtils.hasText(user.getNickname())) {
             user.setNickname(defaultNickname(user));
+        } else if (isDefaultNickname(user.getNickname())
+                && !user.getNickname().equals(defaultNickname(user))) {
+            user.setNickname(defaultNickname(user));
         }
         if (StringUtils.hasText(session.getUnionid())) {
             user.setUnionid(session.getUnionid());
@@ -141,6 +144,10 @@ public class WxLoginServiceImpl implements WxLoginService {
 
     private String defaultNickname(String publicUserId) {
         return "用户" + publicUserId;
+    }
+
+    private boolean isDefaultNickname(String nickname) {
+        return StringUtils.hasText(nickname) && nickname.matches("用户\\d{5}");
     }
 
     private String generatePublicUserId() {

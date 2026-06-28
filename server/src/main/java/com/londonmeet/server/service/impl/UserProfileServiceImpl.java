@@ -109,7 +109,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .userId(user.getId())
                 .publicId(user.getPublicId())
                 .displayId(user.getDisplayId())
-                .nickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : "MeetFun User")
+                .nickname(resolveNickname(user))
                 .avatarUrl(StringUtils.hasText(user.getAvatarUrl()) ? user.getAvatarUrl() : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(StringUtils.hasText(user.getCoverUrl()) ? user.getCoverUrl() : uploadProperties.getDefaultCoverUrl())
                 .motto(StringUtils.hasText(user.getMotto()) ? user.getMotto() : DEFAULT_MOTTO)
@@ -128,6 +128,21 @@ public class UserProfileServiceImpl implements UserProfileService {
             throw new BusinessException("Motto can be at most 100 characters.");
         }
         return result;
+    }
+
+    private String resolveNickname(User user) {
+        String nickname = user.getNickname();
+        String displayId = user.getDisplayId();
+        if (StringUtils.hasText(nickname)
+                && nickname.matches("用户\\d{5}")
+                && StringUtils.hasText(displayId)
+                && !nickname.equals("用户" + displayId)) {
+            return "用户" + displayId;
+        }
+        if (StringUtils.hasText(nickname)) {
+            return nickname;
+        }
+        return StringUtils.hasText(displayId) ? "用户" + displayId : "MeetFun User";
     }
 
     private String normalizeNickname(String value) {
