@@ -47,16 +47,18 @@ public class WxLoginServiceImpl implements WxLoginService {
     @Transactional
     public LoginUserVO login(WxLoginRequest request) {
         String nickname = request.getNickname() == null ? "" : request.getNickname().trim();
-        if (!StringUtils.hasText(nickname)) {
-            throw new BusinessException("Nickname is required.");
-        }
 
         WechatSession session = wechatCode2SessionClient.exchange(request.getCode());
 
         User user = userRepository.findByOpenid(session.getOpenid())
                 .orElseGet(() -> createUser(session, nickname));
 
-        user.setNickname(nickname);
+        if (StringUtils.hasText(nickname)) {
+            user.setNickname(nickname);
+        }
+        if (!StringUtils.hasText(user.getNickname())) {
+            user.setNickname(defaultNickname(user));
+        }
         if (StringUtils.hasText(session.getUnionid())) {
             user.setUnionid(session.getUnionid());
         }
@@ -103,7 +105,7 @@ public class WxLoginServiceImpl implements WxLoginService {
                 .displayId(userId)
                 .openid(session.getOpenid())
                 .unionid(session.getUnionid())
-                .nickname(nickname)
+                .nickname(StringUtils.hasText(nickname) ? nickname : defaultNickname(userId))
                 .avatarUrl(uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(uploadProperties.getDefaultCoverUrl())
                 .role("USER")
@@ -131,6 +133,14 @@ public class WxLoginServiceImpl implements WxLoginService {
         claims.put(JwtClaimsConstant.USER_ID, user.getId());
         claims.put(JwtClaimsConstant.OPENID, user.getOpenid());
         return JwtUtil.generateToken(jwtProperties.getSecretKey(), jwtProperties.getExpiration(), claims);
+    }
+
+    private String defaultNickname(User user) {
+        return defaultNickname(StringUtils.hasText(user.getDisplayId()) ? user.getDisplayId() : user.getPublicId());
+    }
+
+    private String defaultNickname(String publicUserId) {
+        return "用户" + publicUserId;
     }
 
     private String generatePublicUserId() {

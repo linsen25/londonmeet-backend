@@ -59,7 +59,7 @@ public class AuthServiceImpl implements AuthService {
             user.setNickname(nickname);
         }
         if (!StringUtils.hasText(user.getNickname())) {
-            user.setNickname(defaultNickname(session));
+            user.setNickname(defaultNickname(user));
         }
         if (StringUtils.hasText(avatarUrl)) {
             user.setAvatarUrl(avatarUrl);
@@ -109,7 +109,7 @@ public class AuthServiceImpl implements AuthService {
                 .openid(session.getOpenid())
                 .unionid(session.getUnionid())
                 .nickname(StringUtils.hasText(trimToNull(request.getNickname()))
-                        ? trimToNull(request.getNickname()) : defaultNickname(session))
+                        ? trimToNull(request.getNickname()) : defaultNickname(userId))
                 .avatarUrl(StringUtils.hasText(trimToNull(request.getAvatarUrl()))
                         ? trimToNull(request.getAvatarUrl()) : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(uploadProperties.getDefaultCoverUrl())
@@ -119,8 +119,12 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    private String defaultNickname(WechatSession session) {
-        return "用户" + ThreadLocalRandom.current().nextInt(10000, 100000);
+    private String defaultNickname(User user) {
+        return defaultNickname(StringUtils.hasText(user.getDisplayId()) ? user.getDisplayId() : user.getPublicId());
+    }
+
+    private String defaultNickname(String publicUserId) {
+        return "用户" + publicUserId;
     }
 
     private String generatePublicUserId() {
