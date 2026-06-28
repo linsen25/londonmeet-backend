@@ -1,4 +1,4 @@
-﻿package com.londonmeet.server.service.impl;
+package com.londonmeet.server.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -123,7 +123,7 @@ public class ReviewServiceImpl implements ReviewService {
             throw new BusinessException("Activity has not ended yet.");
         }
         if (!activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS).isAfter(LocalDateTime.now())) {
-            throw new BusinessException("璇勪环鏈夋晥鏈熶负娲诲姩缁撴潫鍚?澶╋紝褰撳墠宸茶繃鏈熴€?);
+            throw new BusinessException("评价有效期为活动结束后7天，当前已过期。");
         }
         Long targetId = ActivityReview.TARGET_ACTIVITY.equals(mode)
                 ? ActivityReview.ACTIVITY_TARGET_ID
@@ -138,7 +138,7 @@ public class ReviewServiceImpl implements ReviewService {
 
         if (activityReviewRepository.existsByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
                 reviewerUserId, activity.getId(), mode, targetId)) {
-            throw new BusinessException("璇ヨ瘎浠峰凡缁忔彁浜わ紝涓嶈兘閲嶅璇勪环銆?);
+            throw new BusinessException("该评价已经提交，不能重复评价。");
         }
 
         ActivityReview review = new ActivityReview();
@@ -151,10 +151,10 @@ public class ReviewServiceImpl implements ReviewService {
         boolean lowScore = scores.stream().anyMatch(score -> score.getValue() < 3);
         String reason = trimToEmpty(request.getReason());
         if (lowScore && !StringUtils.hasText(reason)) {
-            throw new BusinessException("瀛樺湪浣庝簬3鍒嗙殑璇勫垎锛岃濉啓浣庡垎鍘熷洜銆?);
+            throw new BusinessException("存在低于3分的评分，请填写低分原因。");
         }
         if (reason.length() > 300) {
-            throw new BusinessException("浣庡垎鍘熷洜鏈€澶?00瀛椼€?);
+            throw new BusinessException("低分原因最多300字。");
         }
         review.setReason(StringUtils.hasText(reason) ? reason : null);
         review.setBatchGood(false);
@@ -166,8 +166,8 @@ public class ReviewServiceImpl implements ReviewService {
             notificationService.createNotification(
                     reviewerUserId,
                     Notification.TYPE_REVIEW_MODERATED,
-                    "浣庡垎璇勪环宸叉彁浜ゅ鏍?,
-                    "浣犲銆? + activity.getTitle() + "銆嶆彁浜ょ殑浣庡垎璇勪环宸茶繘鍏ョ鐞嗗憳瀹℃牳锛屽鏍稿墠涓嶄細璁″叆缁煎悎璇勫垎銆?,
+                    "低分评价已提交审核",
+                    "你对《" + activity.getTitle() + "》提交的低分评价已进入管理员审核，审核前不会计入综合评分。",
                     Notification.RELATED_ACTIVITY,
                     activity.getId()
             );
@@ -180,8 +180,8 @@ public class ReviewServiceImpl implements ReviewService {
                 notificationService.createNotification(
                         receiverUserId,
                         Notification.TYPE_REVIEW_RECEIVED,
-                        ActivityReview.TARGET_ACTIVITY.equals(mode) ? "娲诲姩鏀跺埌鏂拌瘎浠? : "浣犳敹鍒颁竴鏉℃垚鍛樿瘎浠?,
-                        resolveUserName(reviewer) + " 宸插畬鎴愩€? + activity.getTitle() + "銆嶇殑璇勪环銆?,
+                        ActivityReview.TARGET_ACTIVITY.equals(mode) ? "活动收到新评价" : "你收到一条成员评价",
+                        resolveUserName(reviewer) + " 已完成《" + activity.getTitle() + "》的评价。",
                         Notification.RELATED_ACTIVITY,
                         activity.getId()
                 );
@@ -210,13 +210,13 @@ public class ReviewServiceImpl implements ReviewService {
         Activity activity = activityRepository.findById(request.getActivityId())
                 .orElseThrow(() -> new BusinessException("Activity not found."));
         if (!reviewerUserId.equals(activity.getCreatorUserId())) {
-            throw new BusinessException("鍙湁娲诲姩鍙戣捣浜哄彲浠ヤ竴閿ソ璇勫弬涓庤€呫€?);
+            throw new BusinessException("只有活动发起人可以一键好评参与者。");
         }
         if (activity.getEndAt() == null || activity.getEndAt().isAfter(LocalDateTime.now())) {
             throw new BusinessException("Activity has not ended yet.");
         }
         if (!activity.getEndAt().plusDays(REVIEW_WINDOW_DAYS).isAfter(LocalDateTime.now())) {
-            throw new BusinessException("璇勪环鏈夋晥鏈熶负娲诲姩缁撴潫鍚?澶╋紝褰撳墠宸茶繃鏈熴€?);
+            throw new BusinessException("评价有效期为活动结束后7天，当前已过期。");
         }
         List<Long> targetIds = request.getTargetIds() == null
                 ? List.of()
@@ -226,7 +226,7 @@ public class ReviewServiceImpl implements ReviewService {
                 .distinct()
                 .toList();
         if (targetIds.isEmpty()) {
-            throw new BusinessException("璇烽€夋嫨闇€瑕佷竴閿ソ璇勭殑鍙備笌鑰呫€?);
+            throw new BusinessException("请选择需要一键好评的参与者。");
         }
         List<Long> submittedTargetIds = new ArrayList<>();
         Map<Long, String> skippedTargets = new LinkedHashMap<>();
@@ -240,12 +240,12 @@ public class ReviewServiceImpl implements ReviewService {
 
         for (Long targetId : targetIds) {
             if (!canReviewTarget(reviewerUserId, activity, ActivityReview.TARGET_MEMBER, targetId)) {
-                skippedTargets.put(targetId, "涓嶆槸璇ユ椿鍔ㄧ殑鏈夋晥鍙備笌鑰?);
+                skippedTargets.put(targetId, "不是该活动的有效参与者");
                 continue;
             }
             if (activityReviewRepository.existsByReviewerUserIdAndActivityIdAndTargetTypeAndTargetId(
                     reviewerUserId, activity.getId(), ActivityReview.TARGET_MEMBER, targetId)) {
-                skippedTargets.put(targetId, "宸茬粡璇勪环");
+                skippedTargets.put(targetId, "已经评价");
                 continue;
             }
             ActivityReview review = ActivityReview.builder()
@@ -262,9 +262,9 @@ public class ReviewServiceImpl implements ReviewService {
             notificationService.createNotification(
                     targetId,
                     Notification.TYPE_REVIEW_RECEIVED,
-                    "浣犳敹鍒颁竴鏉℃垚鍛樿瘎浠?,
+                    "你收到一条成员评价",
                     resolveUserName(userRepository.findById(reviewerUserId).orElse(null))
-                            + " 宸插畬鎴愩€? + activity.getTitle() + "銆嶇殑璇勪环銆?,
+                            + " 已完成《" + activity.getTitle() + "》的评价。",
                     Notification.RELATED_ACTIVITY,
                     activity.getId()
             );
