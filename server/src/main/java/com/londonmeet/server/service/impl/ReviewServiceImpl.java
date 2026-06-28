@@ -233,7 +233,7 @@ public class ReviewServiceImpl implements ReviewService {
         List<ReviewScoreRequest> scores = MEMBER_KEYS.stream().map(key -> {
             ReviewScoreRequest score = new ReviewScoreRequest();
             score.setKey(key);
-            score.setLabel(labelForKey(key));
+            score.setLabel(key);
             score.setValue(5.0);
             return score;
         }).toList();
@@ -418,24 +418,11 @@ public class ReviewServiceImpl implements ReviewService {
             }
             ReviewScoreRequest clean = new ReviewScoreRequest();
             clean.setKey(key);
-            clean.setLabel(labelForKey(key));
+            clean.setLabel(trimToEmpty(score.getLabel()));
             clean.setValue(score.getValue());
             normalized.add(clean);
         }
         return normalized;
-    }
-
-    private String labelForKey(String key) {
-        return switch (key) {
-            case "organization" -> "组织安排";
-            case "experience" -> "活动体验";
-            case "atmosphere" -> "现场氛围";
-            case "match" -> "内容匹配";
-            case "punctual" -> "准时守约";
-            case "communication" -> "沟通配合";
-            case "friendly" -> "友善礼貌";
-            default -> trimToEmpty(key);
-        };
     }
 
     private BigDecimal average(List<ReviewScoreRequest> scores) {
