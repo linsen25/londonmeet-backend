@@ -10,8 +10,10 @@ public class AdminReportItemVO {
     private Long activityId;
     private String activityTitle;
     private Long reporterUserId;
+    private String reporterDisplayId;
     private String reporterName;
     private Long reportedUserId;
+    private String reportedDisplayId;
     private String reportedUserName;
     private String reason;
     private String status;

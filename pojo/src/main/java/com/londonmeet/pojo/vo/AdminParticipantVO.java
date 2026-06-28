@@ -8,6 +8,7 @@ import lombok.Data;
 public class AdminParticipantVO {
     private Long registrationId;
     private Long userId;
+    private String displayId;
     private String nickname;
     private String avatarUrl;
     private String status;

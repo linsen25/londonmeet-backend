@@ -27,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -96,7 +97,10 @@ public class WxLoginServiceImpl implements WxLoginService {
     }
 
     private User createUser(WechatSession session, String nickname) {
+        String userId = generatePublicUserId();
         return User.builder()
+                .publicId(userId)
+                .displayId(userId)
                 .openid(session.getOpenid())
                 .unionid(session.getUnionid())
                 .nickname(nickname)
@@ -112,6 +116,7 @@ public class WxLoginServiceImpl implements WxLoginService {
         return LoginUserVO.builder()
                 .userId(user.getId())
                 .publicId(user.getPublicId())
+                .displayId(user.getDisplayId())
                 .openid(user.getOpenid())
                 .nickname(user.getNickname())
                 .avatarUrl(user.getAvatarUrl())
@@ -126,6 +131,16 @@ public class WxLoginServiceImpl implements WxLoginService {
         claims.put(JwtClaimsConstant.USER_ID, user.getId());
         claims.put(JwtClaimsConstant.OPENID, user.getOpenid());
         return JwtUtil.generateToken(jwtProperties.getSecretKey(), jwtProperties.getExpiration(), claims);
+    }
+
+    private String generatePublicUserId() {
+        for (int i = 0; i < 20; i++) {
+            String value = String.valueOf(ThreadLocalRandom.current().nextInt(10000, 100000));
+            if (!userRepository.existsByPublicId(value) && !userRepository.existsByDisplayId(value)) {
+                return value;
+            }
+        }
+        throw new BusinessException("Failed to generate user id.");
     }
 
 }

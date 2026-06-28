@@ -108,6 +108,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         return UserProfileVO.builder()
                 .userId(user.getId())
                 .publicId(user.getPublicId())
+                .displayId(user.getDisplayId())
                 .nickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : "MeetFun User")
                 .avatarUrl(StringUtils.hasText(user.getAvatarUrl()) ? user.getAvatarUrl() : uploadProperties.getDefaultAvatarUrl())
                 .coverUrl(StringUtils.hasText(user.getCoverUrl()) ? user.getCoverUrl() : uploadProperties.getDefaultCoverUrl())

@@ -68,7 +68,7 @@ wechat:
   secret: ${WECHAT_APP_SECRET:${WECHAT_SECRET:}}
   
 upload:
-  default-avatar-url: ${DEFAULT_AVATAR_URL:https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar}
+  default-avatar-url: ${DEFAULT_AVATAR_URL:https://res.cloudinary.com/ddkqatprj/image/upload/v1782629106/londonmeet/defaultUser.png}
   default-cover-url: ""
 
 cloudinary:

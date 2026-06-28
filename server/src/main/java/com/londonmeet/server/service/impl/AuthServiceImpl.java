@@ -79,6 +79,7 @@ public class AuthServiceImpl implements AuthService {
         return LoginUserVO.builder()
                 .userId(savedUser.getId())
                 .publicId(savedUser.getPublicId())
+                .displayId(savedUser.getDisplayId())
                 .openid(savedUser.getOpenid())
                 .nickname(savedUser.getNickname())
                 .avatarUrl(savedUser.getAvatarUrl())
@@ -101,7 +102,10 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private User createUser(WechatSession session, WechatLoginRequest request) {
+        String userId = generatePublicUserId();
         return User.builder()
+                .publicId(userId)
+                .displayId(userId)
                 .openid(session.getOpenid())
                 .unionid(session.getUnionid())
                 .nickname(StringUtils.hasText(trimToNull(request.getNickname()))
@@ -117,6 +121,16 @@ public class AuthServiceImpl implements AuthService {
 
     private String defaultNickname(WechatSession session) {
         return "用户" + ThreadLocalRandom.current().nextInt(10000, 100000);
+    }
+
+    private String generatePublicUserId() {
+        for (int i = 0; i < 20; i++) {
+            String value = String.valueOf(ThreadLocalRandom.current().nextInt(10000, 100000));
+            if (!userRepository.existsByPublicId(value) && !userRepository.existsByDisplayId(value)) {
+                return value;
+            }
+        }
+        throw new BusinessException("Failed to generate user id.");
     }
 
     private void syncCreatedActivities(User user) {

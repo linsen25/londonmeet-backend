@@ -34,4 +34,4 @@ services:
       - key: JWT_EXPIRATION
         value: 604800000
       - key: DEFAULT_AVATAR_URL
-        value: https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar
+        value: https://res.cloudinary.com/ddkqatprj/image/upload/v1782629106/londonmeet/defaultUser.png

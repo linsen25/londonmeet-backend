@@ -83,6 +83,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -270,14 +271,19 @@ public class AdminServiceImpl implements AdminService {
 
         String openid = "admin:" + adminUsername;
         User admin = userRepository.findByOpenid(openid)
-                .orElseGet(() -> User.builder()
-                        .openid(openid)
-                        .nickname(adminUsername)
-                        .avatarUrl(uploadProperties.getDefaultAvatarUrl())
-                        .coverUrl(uploadProperties.getDefaultCoverUrl())
-                        .role(ROLE_ADMIN)
-                        .status(STATUS_ACTIVE)
-                        .build());
+                .orElseGet(() -> {
+                    String userId = generatePublicUserId();
+                    return User.builder()
+                            .publicId(userId)
+                            .displayId(userId)
+                            .openid(openid)
+                            .nickname(adminUsername)
+                            .avatarUrl(uploadProperties.getDefaultAvatarUrl())
+                            .coverUrl(uploadProperties.getDefaultCoverUrl())
+                            .role(ROLE_ADMIN)
+                            .status(STATUS_ACTIVE)
+                            .build();
+                });
         admin.setNickname(adminUsername);
         admin.setRole(ROLE_ADMIN);
         admin.setStatus(STATUS_ACTIVE);
@@ -759,8 +765,10 @@ public class AdminServiceImpl implements AdminService {
                             .activityId(report.getActivityId())
                             .activityTitle(activity == null ? "活动已删除" : activity.getTitle())
                             .reporterUserId(report.getReporterUserId())
+                            .reporterDisplayId(displayId(reporter))
                             .reporterName(resolveName(reporter))
                             .reportedUserId(report.getReportedUserId())
+                            .reportedDisplayId(displayId(reported))
                             .reportedUserName(resolveName(reported))
                             .reason(report.getReason())
                             .status(report.getStatus())
@@ -822,6 +830,7 @@ public class AdminServiceImpl implements AdminService {
                 AdminUserItemVO.builder()
                         .id(user.getId())
                         .publicId(user.getPublicId())
+                        .displayId(user.getDisplayId())
                         .nickname(resolveName(user))
                         .avatarUrl(user.getAvatarUrl())
                         .status(user.getStatus())
@@ -1127,7 +1136,7 @@ public class AdminServiceImpl implements AdminService {
                 .list(result.getContent().stream().map(feedback -> {
                     User user = users.get(feedback.getUserId());
                     return AdminFeedbackItemVO.builder()
-                            .id(feedback.getId()).userId(feedback.getUserId())
+                            .id(feedback.getId()).userId(feedback.getUserId()).displayId(displayId(user))
                             .nickname(resolveName(user))
                             .avatarUrl(user == null ? null : user.getAvatarUrl())
                             .type(feedback.getType())
@@ -1200,6 +1209,7 @@ public class AdminServiceImpl implements AdminService {
                     return AdminFeedbackItemVO.builder()
                             .id(appeal.getId())
                             .userId(appeal.getUserId())
+                            .displayId(displayId(user))
                             .nickname(resolveName(user))
                             .avatarUrl(user == null ? null : user.getAvatarUrl())
                             .type(appeal.getType())
@@ -1600,6 +1610,7 @@ public class AdminServiceImpl implements AdminService {
                     User user = users.get(registration.getUserId());
                     return AdminParticipantVO.builder()
                             .registrationId(registration.getId()).userId(registration.getUserId())
+                            .displayId(displayId(user))
                             .nickname(resolveName(user)).avatarUrl(user == null ? null : user.getAvatarUrl())
                             .status(registration.getStatus()).applicationText(registration.getApplicationText())
                             .appliedAt(toEpochMillis(registration.getCreatedAt())).build();
@@ -1979,5 +1990,19 @@ public class AdminServiceImpl implements AdminService {
 
     private String text(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private String displayId(User user) {
+        return user == null ? "" : user.getDisplayId();
+    }
+
+    private String generatePublicUserId() {
+        for (int i = 0; i < 20; i++) {
+            String value = String.valueOf(ThreadLocalRandom.current().nextInt(10000, 100000));
+            if (!userRepository.existsByPublicId(value) && !userRepository.existsByDisplayId(value)) {
+                return value;
+            }
+        }
+        throw new BusinessException("Failed to generate user id.");
     }
 }

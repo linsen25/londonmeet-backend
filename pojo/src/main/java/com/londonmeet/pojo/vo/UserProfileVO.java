@@ -13,6 +13,8 @@ public class UserProfileVO {
 
     private String publicId;
 
+    private String displayId;
+
     private String nickname;
 
     private String avatarUrl;

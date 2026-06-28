@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 用户实体类
@@ -25,8 +25,11 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "public_id", nullable = false, unique = true, length = 40)
+    @Column(name = "public_id", nullable = false, unique = true, length = 5)
     private String publicId;
+
+    @Column(name = "display_id", nullable = false, unique = true, length = 5)
+    private String displayId;
 
     /**
      * 微信小程序唯一标识
@@ -105,7 +108,13 @@ public class User {
         LocalDateTime now = LocalDateTime.now();
 
         if (publicId == null || publicId.isBlank()) {
-            publicId = "usr_" + UUID.randomUUID().toString().replace("-", "");
+            publicId = displayId != null && !displayId.isBlank()
+                    ? displayId
+                    : String.valueOf(ThreadLocalRandom.current().nextInt(10000, 100000));
+        }
+
+        if (displayId == null || displayId.isBlank()) {
+            displayId = publicId;
         }
 
         if (role == null) {

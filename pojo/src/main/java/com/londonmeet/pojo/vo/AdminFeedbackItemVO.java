@@ -8,6 +8,7 @@ import lombok.Data;
 public class AdminFeedbackItemVO {
     private Long id;
     private Long userId;
+    private String displayId;
     private String nickname;
     private String avatarUrl;
     private String type;

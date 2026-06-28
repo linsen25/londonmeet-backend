@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "upload")
 public class UploadProperties {
 
-    private String defaultAvatarUrl = "https://dummyimage.com/300x300/ffffff/111111.png&text=Avatar";
+    private String defaultAvatarUrl = "https://res.cloudinary.com/ddkqatprj/image/upload/v1782629106/londonmeet/defaultUser.png";
 
     private String defaultCoverUrl = "";
 }
