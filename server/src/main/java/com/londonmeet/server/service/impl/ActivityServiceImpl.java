@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -79,6 +80,8 @@ public class ActivityServiceImpl implements ActivityService {
             ActivityRegistration.STATUS_APPROVED,
             ActivityRegistration.STATUS_JOINED_GROUP
     );
+    private static final int CREATE_MIN_LEAD_HOURS = 3;
+    private static final int REGISTERED_TIME_MIN_LEAD_HOURS = 6;
     private static final Map<String, String> CANCELLATION_REASON_LABELS = Map.of(
             "time_conflict", "时间冲突",
             "temporary_issue", "临时有事",
@@ -114,8 +117,8 @@ public class ActivityServiceImpl implements ActivityService {
         LocalDateTime startAt = toLocalDateTime(request.getStartAt());
         LocalDateTime endAt = toLocalDateTime(request.getEndAt());
         LocalDateTime now = LocalDateTime.now();
-        if (startAt.isBefore(now.plusHours(12))) {
-            throw new BusinessException("活动开始时间必须至少晚于当前时间12小时。");
+        if (startAt.isBefore(now.plusHours(CREATE_MIN_LEAD_HOURS))) {
+            throw new BusinessException("活动开始时间必须至少晚于当前时间3小时。");
         }
         if (startAt.isAfter(now.plusDays(30))) {
             throw new BusinessException("活动开始时间最多可设置在30天内。");
@@ -178,7 +181,7 @@ public class ActivityServiceImpl implements ActivityService {
                 Notification.TYPE_ACTIVITY_PUBLISHED,
                 "活动已成功刊登",
                 "你的活动「" + saved.getTitle()
-                        + "」已经成功刊登。你有一次修改活动内容的机会，但必须在原开始时间前至少12小时完成修改。",
+                        + "」已经成功刊登。活动开始前可继续修改；如已有用户报名，调整开始时间必须至少晚于当前时间6小时。",
                 Notification.RELATED_ACTIVITY,
                 saved.getId()
         );
@@ -525,29 +528,12 @@ public class ActivityServiceImpl implements ActivityService {
         if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
             throw new BusinessException("该活动不可修改。");
         }
-        if (activity.getEditCount() != null && activity.getEditCount() >= 1) {
-            throw new BusinessException("该活动已经使用过一次修改机会。");
-        }
 
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime originalStart = activity.getOriginalStartAt() == null
-                ? activity.getStartAt()
-                : activity.getOriginalStartAt();
-        if (!now.isBefore(originalStart.minusHours(12))) {
-            throw new BusinessException("仅可在原开始时间前12小时修改活动。");
-        }
-
         LocalDateTime newStart = toLocalDateTime(request.getStartAt());
         LocalDateTime newEnd = toLocalDateTime(request.getEndAt());
-        if (newStart.isBefore(activity.getStartAt())) {
-            throw new BusinessException("活动开始时间只能往后延，不能提前。");
-        }
         if (!newEnd.isAfter(newStart)) {
             throw new BusinessException("活动结束时间必须晚于开始时间。");
-        }
-        if (activityRepository.existsCreatorTimeConflict(
-                userId, STATUS_PUBLISHED, newStart, newEnd, activity.getId())) {
-            throw new BusinessException("修改后的时间与你发起的其他活动冲突。");
         }
 
         int approvedCount = capacityCount(activity.getId());
@@ -565,6 +551,58 @@ public class ActivityServiceImpl implements ActivityService {
             throw new BusinessException("至少选择一个活动标签。");
         }
 
+        boolean hasRegistrations = activityRegistrationRepository.countByActivityId(activity.getId()) > 0;
+        boolean started = !now.isBefore(activity.getStartAt());
+        boolean ended = now.isAfter(activity.getEndAt());
+        boolean timeChanged = !Objects.equals(activity.getStartAt(), newStart)
+                || !Objects.equals(activity.getEndAt(), newEnd);
+        boolean locationChanged = textChanged(activity.getLocationText(), request.getLocationText());
+        boolean mapImageChanged = textChanged(activity.getMapImageUrl(), request.getMapImageUrl());
+        boolean imagesChanged = !parseStringList(activity.getImageUrlsJson()).equals(imageUrls);
+        boolean contentChanged = textChanged(activity.getContent(), request.getContent());
+        boolean tagsChanged = !parseLongList(activity.getTagIdsJson()).equals(tagIds);
+        boolean recruitChanged = !Objects.equals(
+                normalizeRecruitCount(activity.getRecruitCount()),
+                normalizeRecruitCount(request.getRecruitCount()));
+        boolean hasAnyChanges = timeChanged || locationChanged || mapImageChanged
+                || imagesChanged || contentChanged || tagsChanged || recruitChanged;
+
+        if (ended) {
+            throw new BusinessException("活动已结束，不能修改活动信息。");
+        }
+        if (started) {
+            if (timeChanged) {
+                throw new BusinessException("活动已开始，不能修改活动时间。");
+            }
+            if (locationChanged || mapImageChanged) {
+                throw new BusinessException("活动已开始，不能修改活动地点。");
+            }
+            if (imagesChanged) {
+                throw new BusinessException("活动已开始，不能修改活动图片。");
+            }
+            if (tagsChanged || recruitChanged) {
+                throw new BusinessException("活动已开始，不能修改活动标签或招募人数。");
+            }
+            if (contentChanged && !isAppendOnly(activity.getContent(), request.getContent())) {
+                throw new BusinessException("活动已开始，正文只能补充说明，不能修改原内容。");
+            }
+        } else if (hasRegistrations && timeChanged
+                && newStart.isBefore(now.plusHours(REGISTERED_TIME_MIN_LEAD_HOURS))) {
+            throw new BusinessException("已有用户报名，修改后的活动开始时间必须至少晚于当前时间6小时。");
+        } else if (!hasRegistrations && timeChanged
+                && newStart.isBefore(now.plusHours(CREATE_MIN_LEAD_HOURS))) {
+            throw new BusinessException("活动开始时间必须至少晚于当前时间3小时。");
+        }
+
+        if (timeChanged && activityRepository.existsCreatorTimeConflict(
+                userId, STATUS_PUBLISHED, newStart, newEnd, activity.getId())) {
+            throw new BusinessException("修改后的时间与你发起的其他活动冲突。");
+        }
+
+        if (!hasAnyChanges) {
+            return toDetailVO(activity, null, true, false, true);
+        }
+
         activity.setContent(request.getContent().trim());
         activity.setTagId(tagIds.get(0));
         activity.setTagIdsJson(toJson(tagIds));
@@ -576,15 +614,16 @@ public class ActivityServiceImpl implements ActivityService {
         activity.setMapImageUrl(trimToNull(request.getMapImageUrl()));
         activity.setImageUrlsJson(toJson(imageUrls));
         activity.setCoverUrl(coverUrl);
-        activity.setEditCount(1);
         Activity saved = activityRepository.save(activity);
 
-        notifyApprovedParticipants(
-                saved,
-                Notification.TYPE_ACTIVITY_UPDATED,
-                "活动信息已变更",
-                "您参加的「" + saved.getTitle() + "」信息已变更，请前往主页—活动中查看。"
-        );
+        if (hasRegistrations) {
+            notifyRegisteredParticipants(
+                    saved,
+                    Notification.TYPE_ACTIVITY_UPDATED,
+                    "活动信息已变更",
+                    "您报名的「" + saved.getTitle() + "」信息已变更，请前往主页—活动中查看。"
+            );
+        }
         return toDetailVO(saved, null, true, false, true);
     }
 
@@ -601,18 +640,18 @@ public class ActivityServiceImpl implements ActivityService {
         requireCreator(activity, userId);
         if (!STATUS_PUBLISHED.equals(activity.getStatus())
                 || !activity.getEndAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("已结束的活动不能更换群二维码。");
+            throw new BusinessException("活动已结束，不能更换群二维码。");
         }
 
         activity.setInviteQrUrl(request.getInviteQrUrl().trim());
         activity.setQrExpiresAt(LocalDateTime.now().plusDays(request.getRemainingDays()));
         activity.setQrReminderSentAt(null);
         Activity saved = activityRepository.save(activity);
-        notifyApprovedParticipants(
+        notifyRegisteredParticipants(
                 saved,
                 Notification.TYPE_ACTIVITY_QR_UPDATED,
                 "群二维码已更新",
-                "「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
+                "您报名的「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
         );
         return toDetailVO(saved, null, true, false, true);
     }
@@ -1019,23 +1058,27 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     private String resolveEditBlockedReason(Activity activity) {
-        if (activity.getEditCount() != null && activity.getEditCount() >= 1) {
-            return "edit_limit_reached";
-        }
         if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
             return "not_available";
         }
-        LocalDateTime originalStart = activity.getOriginalStartAt() == null
-                ? activity.getStartAt()
-                : activity.getOriginalStartAt();
-        if (!LocalDateTime.now().isBefore(originalStart.minusHours(12))) {
-            return "within_12_hours";
+        if (activity.getEndAt() != null && LocalDateTime.now().isAfter(activity.getEndAt())) {
+            return "ended";
         }
         return null;
     }
 
     private boolean canViewInviteQr(boolean isCreator, ActivityRegistration registration) {
         return isCreator || (registration != null && CAPACITY_STATUSES.contains(registration.getStatus()));
+    }
+
+    private boolean textChanged(String before, String after) {
+        return !Objects.equals(trimToNull(before), trimToNull(after));
+    }
+
+    private boolean isAppendOnly(String before, String after) {
+        String original = before == null ? "" : before.trim();
+        String updated = after == null ? "" : after.trim();
+        return updated.equals(original) || updated.startsWith(original);
     }
 
     private boolean canOpenActivityQr(Activity activity, LocalDateTime now) {
@@ -1047,13 +1090,13 @@ public class ActivityServiceImpl implements ActivityService {
                 && activity.getQrExpiresAt().isAfter(now);
     }
 
-    private void notifyApprovedParticipants(
+    private void notifyRegisteredParticipants(
             Activity activity,
             String type,
             String title,
             String content
     ) {
-        activityRegistrationRepository.findByActivityIdAndStatusIn(activity.getId(), CAPACITY_STATUSES)
+        activityRegistrationRepository.findByActivityIdAndStatusIn(activity.getId(), CONFLICT_STATUSES)
                 .stream()
                 .map(ActivityRegistration::getUserId)
                 .distinct()
