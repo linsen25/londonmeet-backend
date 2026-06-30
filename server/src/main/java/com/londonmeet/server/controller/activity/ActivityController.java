@@ -130,6 +130,15 @@ public class ActivityController {
         return ApiResponse.success(activityService.updateActivityQr(id, request, loginUser));
     }
 
+    @PostMapping("/{id}/invite-qr/remind")
+    public ApiResponse<Void> remindCreatorToUpdateQr(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        activityService.remindCreatorToUpdateQr(id, loginUser);
+        return ApiResponse.success();
+    }
+
     @PostMapping("/{id}/apply")
     public ApiResponse<ActivityRegistrationVO> applyActivity(
             @PathVariable Long id,

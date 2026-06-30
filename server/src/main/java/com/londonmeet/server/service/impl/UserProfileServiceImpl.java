@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.pojo.dto.request.UserProfileUpdateRequest;
+import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.vo.CoverUploadVO;
 import com.londonmeet.pojo.vo.ImageUploadVO;
@@ -11,6 +12,7 @@ import com.londonmeet.pojo.vo.UserProfileStatsVO;
 import com.londonmeet.pojo.vo.UserProfileVO;
 import com.londonmeet.server.config.UploadProperties;
 import com.londonmeet.server.repository.ActivityRepository;
+import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.CloudinaryImageService;
@@ -21,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,15 +34,20 @@ public class UserProfileServiceImpl implements UserProfileService {
     private static final String DEFAULT_MOTTO = "你好呀，准备好出去转转了么~";
     private static final String DEFAULT_TAG = "未添加标签";
 
-    private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final int MAX_NICKNAME_LENGTH = 30;
     private static final int MAX_MOTTO_LENGTH = 100;
     private static final int MAX_TAGS = 3;
     private static final int MAX_TAG_LENGTH = 10;
     private static final long MAX_COVER_BYTES = 8 * 1024 * 1024;
+    private static final List<String> ACTIVE_REGISTRATION_STATUSES = List.of(
+            ActivityRegistration.STATUS_PENDING,
+            ActivityRegistration.STATUS_APPROVED,
+            ActivityRegistration.STATUS_JOINED_GROUP
+    );
 
     private final UserRepository userRepository;
     private final ActivityRepository activityRepository;
+    private final ActivityRegistrationRepository activityRegistrationRepository;
     private final UploadProperties uploadProperties;
     private final CloudinaryImageService cloudinaryImageService;
     private final ObjectMapper objectMapper;
@@ -94,14 +100,11 @@ public class UserProfileServiceImpl implements UserProfileService {
     }
 
     private UserProfileVO toProfileVO(User user) {
-        LocalDateTime now = LocalDateTime.now();
         UserProfileStatsVO stats = UserProfileStatsVO.builder()
                 .myEvents(activityRepository.countByCreatorUserId(user.getId()))
-                .ongoing(activityRepository.countByCreatorUserIdAndStatusAndStartAtLessThanEqualAndEndAtAfter(
+                .ongoing(activityRegistrationRepository.countByUserIdAndStatusIn(
                         user.getId(),
-                        STATUS_PUBLISHED,
-                        now,
-                        now
+                        ACTIVE_REGISTRATION_STATUSES
                 ))
                 .build();
 

@@ -21,6 +21,7 @@ public class Notification {
     public static final String TYPE_ACTIVITY_UPDATED = "activity_updated";
     public static final String TYPE_ACTIVITY_QR_UPDATED = "activity_qr_updated";
     public static final String TYPE_ACTIVITY_QR_EXPIRING = "activity_qr_expiring";
+    public static final String TYPE_ACTIVITY_QR_CHANGE_REQUESTED = "activity_qr_change_requested";
     public static final String TYPE_REGISTRATION_CANCELLED_CREATOR = "registration_cancelled_creator";
     public static final String TYPE_ACTIVITY_PUBLISHED = "activity_published";
     public static final String TYPE_REVIEW_REMINDER = "review_reminder";

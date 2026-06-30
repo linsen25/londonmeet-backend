@@ -35,6 +35,8 @@ public interface ActivityService {
 
     ActivityDetailVO updateActivityQr(Long id, ActivityQrUpdateRequest request, LoginUser loginUser);
 
+    void remindCreatorToUpdateQr(Long id, LoginUser loginUser);
+
     ActivityPageVO searchActivities(ActivitySearchRequest request, LoginUser loginUser);
 
     ActivityPageVO listFavoriteActivities(ActivityQueryRequest request, LoginUser loginUser);

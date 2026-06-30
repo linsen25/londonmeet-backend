@@ -82,6 +82,7 @@ public class ActivityServiceImpl implements ActivityService {
     );
     private static final int CREATE_MIN_LEAD_HOURS = 3;
     private static final int REGISTERED_TIME_MIN_LEAD_HOURS = 6;
+    private static final int QR_CHANGE_REMINDER_COOLDOWN_HOURS = 6;
     private static final Map<String, String> CANCELLATION_REASON_LABELS = Map.of(
             "time_conflict", "时间冲突",
             "temporary_issue", "临时有事",
@@ -654,6 +655,52 @@ public class ActivityServiceImpl implements ActivityService {
                 "您报名的「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
         );
         return toDetailVO(saved, null, true, false, true);
+    }
+
+    @Override
+    @Transactional
+    public void remindCreatorToUpdateQr(Long id, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        if (userId.equals(activity.getCreatorUserId())) {
+            throw new BusinessException("发起者无需提醒自己更换二维码。");
+        }
+        if (!STATUS_PUBLISHED.equals(activity.getStatus())
+                || activity.getEndAt() == null
+                || !activity.getEndAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("活动已结束，不能发送提醒。");
+        }
+
+        ActivityRegistration registration = activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException("只有已通过的参与者可以提醒发起者。"));
+        if (!CAPACITY_STATUSES.contains(registration.getStatus())) {
+            throw new BusinessException("只有已通过的参与者可以提醒发起者。");
+        }
+
+        LocalDateTime cooldownStart = LocalDateTime.now().minusHours(QR_CHANGE_REMINDER_COOLDOWN_HOURS);
+        long recentReminders = notificationRepository
+                .countByUserIdAndTypeAndRelatedTypeAndRelatedIdAndCreatedAtAfter(
+                        activity.getCreatorUserId(),
+                        Notification.TYPE_ACTIVITY_QR_CHANGE_REQUESTED,
+                        Notification.RELATED_ACTIVITY,
+                        activity.getId(),
+                        cooldownStart
+                );
+        if (recentReminders > 0) {
+            throw new BusinessException("已经提醒过发起者，请稍后再查看。");
+        }
+
+        User participant = userRepository.findById(userId).orElse(null);
+        String participantName = resolveAuthorName(participant);
+        notificationService.createNotification(
+                activity.getCreatorUserId(),
+                Notification.TYPE_ACTIVITY_QR_CHANGE_REQUESTED,
+                "有人提醒你更换群二维码",
+                participantName + " 提醒你「" + activity.getTitle() + "」的群二维码可能无法识别，请及时更新。",
+                Notification.RELATED_ACTIVITY,
+                activity.getId()
+        );
     }
 
     @Override

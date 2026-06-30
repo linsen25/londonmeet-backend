@@ -48,15 +48,19 @@ public class UploadController {
     @GetMapping("/image-proxy")
     public ResponseEntity<byte[]> imageProxy(
             @RequestParam("publicId") String publicId,
-            @RequestParam(value = "format", required = false) String format
+            @RequestParam(value = "format", required = false) String format,
+            @RequestParam(value = "width", required = false) Integer width,
+            @RequestParam(value = "height", required = false) Integer height
     ) {
         String normalizedPublicId = normalizePublicId(publicId);
         String normalizedFormat = normalizeFormat(format);
+        String transformation = buildTransformation(width, height);
         validateCloudinaryConfig();
         String suffix = StringUtils.hasText(normalizedFormat) ? "." + normalizedFormat : "";
         String cloudinaryUrl = "https://res.cloudinary.com/"
                 + cloudinaryProperties.getCloudName()
                 + "/image/upload/"
+                + transformation
                 + normalizedPublicId
                 + suffix;
 
@@ -90,6 +94,32 @@ public class UploadController {
         }
         String value = format.trim().toLowerCase();
         return ALLOWED_FORMATS.contains(value) ? value : "";
+    }
+
+    private String buildTransformation(Integer width, Integer height) {
+        int normalizedWidth = normalizeDimension(width);
+        int normalizedHeight = normalizeDimension(height);
+        if (normalizedWidth <= 0 && normalizedHeight <= 0) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder("q_auto");
+        if (normalizedWidth > 0) {
+            builder.append(",w_").append(normalizedWidth);
+        }
+        if (normalizedHeight > 0) {
+            builder.append(",h_").append(normalizedHeight);
+        }
+        if (normalizedWidth > 0 && normalizedHeight > 0) {
+            builder.append(",c_fill");
+        }
+        return builder.append('/').toString();
+    }
+
+    private int normalizeDimension(Integer value) {
+        if (value == null || value < 1) {
+            return 0;
+        }
+        return Math.min(value, 1600);
     }
 
     private void validateCloudinaryConfig() {

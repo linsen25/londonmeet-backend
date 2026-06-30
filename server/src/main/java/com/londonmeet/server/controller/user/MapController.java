@@ -27,7 +27,6 @@ import java.util.Map;
 public class MapController {
 
     private static final String STATIC_MAP_URL = "https://maps.googleapis.com/maps/api/staticmap";
-    private static final String GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
     private final GoogleMapsProperties googleMapsProperties;
 
@@ -43,16 +42,7 @@ public class MapController {
             ));
         }
 
-        Map<?, ?> location = resolveAddressLocation(address.trim());
-        if (location == null) {
-            return ApiResponse.success(Map.of(
-                    "imageUrl", "",
-                    "error", "Address is unavailable."
-            ));
-        }
-        Object lat = location.get("lat");
-        Object lng = location.get("lng");
-        String center = lat + "," + lng;
+        String center = address.trim();
 
         String imageUrl = UriComponentsBuilder.fromUriString(STATIC_MAP_URL)
                 .queryParam("center", center)
@@ -68,43 +58,6 @@ public class MapController {
                 "imageUrl", "/api/map/image-proxy?url="
                         + UriUtils.encodeQueryParam(imageUrl, StandardCharsets.UTF_8)
         ));
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<?, ?> resolveAddressLocation(String address) {
-        String geocodeUrl = UriComponentsBuilder.fromUriString(GEOCODE_URL)
-                .queryParam("address", address)
-                .queryParam("key", googleMapsProperties.getApiKey())
-                .toUriString();
-        try {
-            Map<String, Object> response = RestClient.create()
-                    .get()
-                    .uri(URI.create(geocodeUrl))
-                    .retrieve()
-                    .body(Map.class);
-            if (response == null || !"OK".equals(response.get("status"))) {
-                return null;
-            }
-            Object resultsValue = response.get("results");
-            if (!(resultsValue instanceof java.util.List<?> results) || results.isEmpty()) {
-                return null;
-            }
-            Object firstValue = results.get(0);
-            if (!(firstValue instanceof Map<?, ?> first)) {
-                return null;
-            }
-            Object geometryValue = first.get("geometry");
-            if (!(geometryValue instanceof Map<?, ?> geometry)) {
-                return null;
-            }
-            Object locationValue = geometry.get("location");
-            if (!(locationValue instanceof Map<?, ?> location)) {
-                return null;
-            }
-            return location;
-        } catch (RuntimeException ex) {
-            return null;
-        }
     }
 
     @GetMapping("/image-proxy")
