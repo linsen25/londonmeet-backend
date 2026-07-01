@@ -7,15 +7,18 @@ import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
 import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRequest;
 import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
 import com.londonmeet.pojo.dto.request.ActivityEventRequest;
+import com.londonmeet.pojo.dto.request.ActivityRegistrationReviewRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
 import com.londonmeet.pojo.vo.ActivityPageVO;
 import com.londonmeet.pojo.vo.ActivityPostVO;
 import com.londonmeet.pojo.vo.ActivityRegistrationVO;
 import com.londonmeet.pojo.vo.ActivityReportVO;
+import com.londonmeet.pojo.vo.PendingReviewActivityVO;
 import com.londonmeet.pojo.vo.PendingReviewVO;
 import com.londonmeet.server.security.LoginUser;
 
@@ -35,6 +38,8 @@ public interface ActivityService {
 
     ActivityDetailVO updateActivityQr(Long id, ActivityQrUpdateRequest request, LoginUser loginUser);
 
+    ActivityDetailVO cancelActivity(Long id, ActivityCancelRequest request, LoginUser loginUser);
+
     void remindCreatorToUpdateQr(Long id, LoginUser loginUser);
 
     ActivityPageVO searchActivities(ActivitySearchRequest request, LoginUser loginUser);
@@ -44,6 +49,12 @@ public interface ActivityService {
     ActivityPageVO listHistoryActivities(ActivityQueryRequest request, LoginUser loginUser);
 
     List<PendingReviewVO> listPendingReviews(LoginUser loginUser);
+
+    List<PendingReviewActivityVO> listPendingReviewActivities(LoginUser loginUser);
+
+    List<PendingReviewVO> listActivityReviewRegistrations(Long activityId, String status, LoginUser loginUser);
+
+    List<PendingReviewVO> listOrganizerBlacklist(Long activityId, LoginUser loginUser);
 
     ActivityDetailVO getActivityDetail(Long id, LoginUser loginUser);
 
@@ -57,9 +68,25 @@ public interface ActivityService {
             LoginUser loginUser
     );
 
-    ActivityRegistrationVO approveRegistration(Long registrationId, LoginUser loginUser);
+    ActivityRegistrationVO approveRegistration(
+            Long registrationId,
+            ActivityRegistrationReviewRequest request,
+            LoginUser loginUser
+    );
 
-    ActivityRegistrationVO rejectRegistration(Long registrationId, LoginUser loginUser);
+    ActivityRegistrationVO rejectRegistration(
+            Long registrationId,
+            ActivityRegistrationReviewRequest request,
+            LoginUser loginUser
+    );
+
+    ActivityRegistrationVO blacklistRegistration(
+            Long registrationId,
+            ActivityRegistrationReviewRequest request,
+            LoginUser loginUser
+    );
+
+    void unblockApplicant(Long blacklistId, LoginUser loginUser);
 
     ActivityFavoriteVO updateFavorite(Long id, ActivityFavoriteRequest request, LoginUser loginUser);
 

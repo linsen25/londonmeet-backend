@@ -32,6 +32,16 @@ public interface ActivityRegistrationRepository extends JpaRepository<ActivityRe
 
     List<ActivityRegistration> findByActivityIdOrderByCreatedAtAsc(Long activityId);
 
+    List<ActivityRegistration> findByActivityIdAndStatusOrderByCreatedAtAsc(Long activityId, String status);
+
+    List<ActivityRegistration> findByUserIdAndStatus(Long userId, String status);
+
+    List<ActivityRegistration> findByActivityIdInAndUserIdAndStatus(
+            Collection<Long> activityIds,
+            Long userId,
+            String status
+    );
+
     List<ActivityRegistration> findByUserIdAndActivityIdIn(Long userId, Collection<Long> activityIds);
 
     Optional<ActivityRegistration> findFirstByActivityIdAndStatusOrderByCreatedAtAsc(

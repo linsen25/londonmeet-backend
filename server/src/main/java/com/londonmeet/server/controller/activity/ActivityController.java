@@ -8,14 +8,17 @@ import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
 import com.londonmeet.pojo.dto.request.ActivityReportRequest;
 import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRequest;
 import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
 import com.londonmeet.pojo.dto.request.ActivityEventRequest;
+import com.londonmeet.pojo.dto.request.ActivityRegistrationReviewRequest;
 import com.londonmeet.pojo.vo.ActivityDetailVO;
 import com.londonmeet.pojo.vo.ActivityFavoriteVO;
 import com.londonmeet.pojo.vo.ActivityPageVO;
 import com.londonmeet.pojo.vo.ActivityPostVO;
 import com.londonmeet.pojo.vo.ActivityRegistrationVO;
 import com.londonmeet.pojo.vo.ActivityReportVO;
+import com.londonmeet.pojo.vo.PendingReviewActivityVO;
 import com.londonmeet.pojo.vo.PendingReviewVO;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.ActivityService;
@@ -88,20 +91,64 @@ public class ActivityController {
         return ApiResponse.success(activityService.listPendingReviews(loginUser));
     }
 
+    @GetMapping("/pending-review/activities")
+    public ApiResponse<List<PendingReviewActivityVO>> listPendingReviewActivities(
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.listPendingReviewActivities(loginUser));
+    }
+
+    @GetMapping("/pending-review/activities/{activityId}/registrations")
+    public ApiResponse<List<PendingReviewVO>> listActivityReviewRegistrations(
+            @PathVariable Long activityId,
+            @RequestParam(required = false) String status,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.listActivityReviewRegistrations(activityId, status, loginUser));
+    }
+
+    @GetMapping("/pending-review/activities/{activityId}/blacklist")
+    public ApiResponse<List<PendingReviewVO>> listOrganizerBlacklist(
+            @PathVariable Long activityId,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.listOrganizerBlacklist(activityId, loginUser));
+    }
+
     @PostMapping("/registrations/{registrationId}/approve")
     public ApiResponse<ActivityRegistrationVO> approveRegistration(
             @PathVariable Long registrationId,
+            @RequestBody(required = false) ActivityRegistrationReviewRequest request,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
-        return ApiResponse.success(activityService.approveRegistration(registrationId, loginUser));
+        return ApiResponse.success(activityService.approveRegistration(registrationId, request, loginUser));
     }
 
     @PostMapping("/registrations/{registrationId}/reject")
     public ApiResponse<ActivityRegistrationVO> rejectRegistration(
             @PathVariable Long registrationId,
+            @RequestBody(required = false) ActivityRegistrationReviewRequest request,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
-        return ApiResponse.success(activityService.rejectRegistration(registrationId, loginUser));
+        return ApiResponse.success(activityService.rejectRegistration(registrationId, request, loginUser));
+    }
+
+    @PostMapping("/registrations/{registrationId}/blacklist")
+    public ApiResponse<ActivityRegistrationVO> blacklistRegistration(
+            @PathVariable Long registrationId,
+            @RequestBody(required = false) ActivityRegistrationReviewRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.blacklistRegistration(registrationId, request, loginUser));
+    }
+
+    @PostMapping("/blacklist/{blacklistId}/unblock")
+    public ApiResponse<Void> unblockApplicant(
+            @PathVariable Long blacklistId,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        activityService.unblockApplicant(blacklistId, loginUser);
+        return ApiResponse.success();
     }
 
     @GetMapping("/{id}")
@@ -128,6 +175,15 @@ public class ActivityController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         return ApiResponse.success(activityService.updateActivityQr(id, request, loginUser));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<ActivityDetailVO> cancelActivity(
+            @PathVariable Long id,
+            @Valid @RequestBody ActivityCancelRequest request,
+            @AuthenticationPrincipal LoginUser loginUser
+    ) {
+        return ApiResponse.success(activityService.cancelActivity(id, request, loginUser));
     }
 
     @PostMapping("/{id}/invite-qr/remind")

@@ -27,6 +27,28 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             Pageable pageable
     );
 
+    @Query("""
+            select a
+            from Activity a
+            where a.status = :status
+              and a.endAt > :now
+              and a.endAt < :rangeEnd
+              and not exists (
+                    select b.id
+                    from ActivityOrganizerBlacklist b
+                    where b.organizerUserId = a.creatorUserId
+                      and b.blockedUserId = :userId
+                      and b.active = true
+                  )
+            """)
+    Page<Activity> findVisibleActivities(
+            @Param("userId") Long userId,
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
+            @Param("rangeEnd") LocalDateTime rangeEnd,
+            Pageable pageable
+    );
+
     Page<Activity> findByCreatorUserIdAndStatusAndEndAtAfter(
             Long creatorUserId,
             String status,
@@ -79,6 +101,31 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
               and (:hasTagFilter = false or a.tagId in :tagIds)
             """)
     Page<Activity> searchPublishedActivities(
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
+            @Param("keyword") String keyword,
+            @Param("hasTagFilter") boolean hasTagFilter,
+            @Param("tagIds") java.util.Collection<Long> tagIds,
+            Pageable pageable
+    );
+
+    @Query("""
+            select a
+            from Activity a
+            where a.status = :status
+              and a.endAt > :now
+              and (:keyword is null or lower(a.title) like lower(concat('%', :keyword, '%')))
+              and (:hasTagFilter = false or a.tagId in :tagIds)
+              and not exists (
+                    select b.id
+                    from ActivityOrganizerBlacklist b
+                    where b.organizerUserId = a.creatorUserId
+                      and b.blockedUserId = :userId
+                      and b.active = true
+                  )
+            """)
+    Page<Activity> searchVisiblePublishedActivities(
+            @Param("userId") Long userId,
             @Param("status") String status,
             @Param("now") LocalDateTime now,
             @Param("keyword") String keyword,
@@ -177,6 +224,20 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             @Param("status") String status,
             @Param("now") LocalDateTime now,
             @Param("registrationStatuses") Collection<String> registrationStatuses,
+            Pageable pageable
+    );
+
+    @Query("""
+            select a
+            from Activity a
+            where a.creatorUserId = :creatorUserId
+              and a.status = :status
+              and a.endAt > :now
+            """)
+    Page<Activity> findCreatedOngoingActivitiesForReview(
+            @Param("creatorUserId") Long creatorUserId,
+            @Param("status") String status,
+            @Param("now") LocalDateTime now,
             Pageable pageable
     );
 

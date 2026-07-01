@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -18,4 +19,6 @@ public interface ActivityFavoriteRepository extends JpaRepository<ActivityFavori
             @Param("userId") Long userId,
             @Param("activityIds") Collection<Long> activityIds
     );
+
+    List<ActivityFavorite> findByActivityId(Long activityId);
 }

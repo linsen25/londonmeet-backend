@@ -16,4 +16,8 @@ public class ActivityRegistrationVO {
     private String applicationText;
 
     private Integer noticeCode;
+
+    private String reviewReasonType;
+
+    private String reviewReasonText;
 }
