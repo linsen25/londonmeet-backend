@@ -36,7 +36,6 @@ public class ActivityLifecycleNotificationService {
     public void sendLifecycleNotifications() {
         LocalDateTime now = LocalDateTime.now();
         sendStartReminders(now);
-        sendReviewAvailable(now);
     }
 
     private void sendStartReminders(LocalDateTime now) {
@@ -46,19 +45,7 @@ public class ActivityLifecycleNotificationService {
                     activity,
                     Notification.TYPE_ACTIVITY_START_REMINDER,
                     "活动即将开始",
-                    "「" + activity.getTitle() + "」将在24小时内开始，请确认时间、地点和群聊信息。"
-            );
-        }
-    }
-
-    private void sendReviewAvailable(LocalDateTime now) {
-        for (Activity activity : activityRepository.findByStatusAndEndAtBetween(
-                STATUS_PUBLISHED, now.minusDays(7), now)) {
-            notifyRelatedOnce(
-                    activity,
-                    Notification.TYPE_REVIEW_AVAILABLE,
-                    "活动评价已开放",
-                    "「" + activity.getTitle() + "」已经结束，评价将在结束7天后关闭，请前往主页—待评价完成评价。"
+                    "《" + activity.getTitle() + "》将在24小时内开始，请确认时间、地点和群聊信息。"
             );
         }
     }

@@ -2,6 +2,8 @@ package com.londonmeet.pojo.dto.request;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class ActivityQueryRequest {
 
@@ -14,4 +16,6 @@ public class ActivityQueryRequest {
     private Boolean refresh = false;
 
     private String type = "joined";
+
+    private List<Long> tagIds;
 }

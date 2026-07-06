@@ -3,6 +3,8 @@ package com.londonmeet.pojo.vo;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 @Builder
 public class ActivityPostVO {
@@ -26,6 +28,10 @@ public class ActivityPostVO {
     private Integer joinedCount;
 
     private Integer totalCount;
+
+    private List<Long> tagIds;
+
+    private String locationText;
 
     private Long startAt;
 

@@ -27,6 +27,56 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             Pageable pageable
     );
 
+    Page<Activity> findByStatusAndEndAtAfterAndEndAtBeforeAndTagIdIn(
+            String status,
+            LocalDateTime endAtAfter,
+            LocalDateTime endAtBefore,
+            Collection<Long> tagIds,
+            Pageable pageable
+    );
+
+    @Query(
+            value = """
+                    SELECT *
+                    FROM activities a
+                    WHERE a.status = :status
+                      AND a.end_at > :endAtAfter
+                      AND a.end_at < :endAtBefore
+                      AND (
+                            a.tag_id IN (:tagIds)
+                            OR (
+                                a.tag_ids_json IS NOT NULL
+                                AND JSON_VALID(a.tag_ids_json)
+                                AND JSON_OVERLAPS(CAST(a.tag_ids_json AS JSON), CAST(:tagIdsJson AS JSON))
+                            )
+                          )
+                    """,
+            countQuery = """
+                    SELECT COUNT(*)
+                    FROM activities a
+                    WHERE a.status = :status
+                      AND a.end_at > :endAtAfter
+                      AND a.end_at < :endAtBefore
+                      AND (
+                            a.tag_id IN (:tagIds)
+                            OR (
+                                a.tag_ids_json IS NOT NULL
+                                AND JSON_VALID(a.tag_ids_json)
+                                AND JSON_OVERLAPS(CAST(a.tag_ids_json AS JSON), CAST(:tagIdsJson AS JSON))
+                            )
+                          )
+                    """,
+            nativeQuery = true
+    )
+    Page<Activity> findByStatusAndEndAtAfterAndEndAtBeforeAndAnyTagIn(
+            @Param("status") String status,
+            @Param("endAtAfter") LocalDateTime endAtAfter,
+            @Param("endAtBefore") LocalDateTime endAtBefore,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("tagIdsJson") String tagIdsJson,
+            Pageable pageable
+    );
+
     @Query("""
             select a
             from Activity a
@@ -175,23 +225,6 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             @Param("keyword") String keyword,
             @Param("status") String status,
             @Param("now") LocalDateTime now,
-            Pageable pageable
-    );
-
-    @Query("""
-            select distinct a
-            from Activity a
-            join ActivityReview r on r.activityId = a.id
-            where (:keyword is null
-                   or lower(a.title) like lower(concat('%', :keyword, '%'))
-                   or lower(a.authorName) like lower(concat('%', :keyword, '%')))
-              and (:targetType is null or r.targetType = :targetType)
-              and (:reviewStatus is null or r.status = :reviewStatus)
-            """)
-    Page<Activity> findAdminReviewActivities(
-            @Param("keyword") String keyword,
-            @Param("targetType") String targetType,
-            @Param("reviewStatus") String reviewStatus,
             Pageable pageable
     );
 

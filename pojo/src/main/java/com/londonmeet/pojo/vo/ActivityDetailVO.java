@@ -21,8 +21,6 @@ public class ActivityDetailVO {
 
     private String authorAvatarUrl;
 
-    private Double organizerRating;
-
     private String authorMotto;
 
     private List<String> authorTags;

@@ -34,7 +34,6 @@ public class AdminDashboardVO {
     private Long approvedRegistrationCount;
     private Long cancelledRegistrationCount;
     private Long pendingAppealCount;
-    private Long pendingReviewCount;
 
     private List<DailyCount> activityTrend;
 

@@ -12,12 +12,10 @@ import com.londonmeet.pojo.dto.request.AdminActivityTagsRequest;
 import com.londonmeet.pojo.dto.request.AdminActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.AdminTagRequest;
 import com.londonmeet.pojo.dto.request.AdminNotificationRequest;
-import com.londonmeet.pojo.dto.request.ReviewScoreRequest;
 import com.londonmeet.pojo.entity.AdminAuditLog;
 import com.londonmeet.pojo.entity.Activity;
 import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityReport;
-import com.londonmeet.pojo.entity.ActivityReview;
 import com.londonmeet.pojo.entity.User;
 import com.londonmeet.pojo.entity.Tag;
 import com.londonmeet.pojo.entity.UserFeedback;
@@ -37,10 +35,6 @@ import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackItemVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
-import com.londonmeet.pojo.vo.AdminReviewItemVO;
-import com.londonmeet.pojo.vo.AdminReviewPageVO;
-import com.londonmeet.pojo.vo.AdminReviewActivityItemVO;
-import com.londonmeet.pojo.vo.AdminReviewActivityPageVO;
 import com.londonmeet.pojo.vo.AdminActivityAnalyticsVO;
 import com.londonmeet.pojo.vo.AdminUserAnalyticsVO;
 import com.londonmeet.server.config.AdminProperties;
@@ -49,7 +43,6 @@ import com.londonmeet.server.config.UploadProperties;
 import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.AdminAuditLogRepository;
 import com.londonmeet.server.repository.ActivityReportRepository;
-import com.londonmeet.server.repository.ActivityReviewRepository;
 import com.londonmeet.server.repository.ActivityRepository;
 import com.londonmeet.server.repository.UserRepository;
 import com.londonmeet.server.repository.TagRepository;
@@ -106,7 +99,6 @@ public class AdminServiceImpl implements AdminService {
     private final ActivityRepository activityRepository;
     private final ActivityRegistrationRepository activityRegistrationRepository;
     private final ActivityReportRepository activityReportRepository;
-    private final ActivityReviewRepository activityReviewRepository;
     private final AdminAuditLogRepository adminAuditLogRepository;
     private final TagRepository tagRepository;
     private final UserFeedbackRepository userFeedbackRepository;
@@ -155,12 +147,6 @@ public class AdminServiceImpl implements AdminService {
                            AND e.created_at>=? AND e.created_at<?) group_qr_users,
                        (SELECT COUNT(*) FROM activity_registrations r
                          WHERE r.activity_id=a.id AND r.cancelled_at>=? AND r.cancelled_at<?) cancelled_count,
-                       (SELECT COUNT(*) FROM activity_reviews v
-                         WHERE v.activity_id=a.id AND v.target_type='activity'
-                           AND v.created_at>=? AND v.created_at<?) review_count,
-                       (SELECT AVG(v.overall_score) FROM activity_reviews v
-                         WHERE v.activity_id=a.id AND v.target_type='activity' AND v.status='NORMAL'
-                           AND v.created_at>=? AND v.created_at<?) average_rating,
                        (SELECT COUNT(*) FROM activity_reports rp
                          WHERE rp.activity_id=a.id AND rp.created_at>=? AND rp.created_at<?) report_count
                 FROM activities a
@@ -169,8 +155,7 @@ public class AdminServiceImpl implements AdminService {
                 LIMIT ? OFFSET ?
                 """,
                 start, end, start, end, start, end, start, end, start, end,
-                start, end,
-                start, end, start, end, start, end, start, end, start, end,
+                start, end, start, end, start, end, start, end,
                 end, start, size, (p - 1) * size);
         List<AdminActivityAnalyticsVO.ActivityItem> items = rows.stream().map(row ->
                 AdminActivityAnalyticsVO.ActivityItem.builder()
@@ -186,8 +171,6 @@ public class AdminServiceImpl implements AdminService {
                         .joinedGroupCount(number(row, "joined_group_count"))
                         .groupQrUsers(number(row, "group_qr_users"))
                         .cancelledCount(number(row, "cancelled_count"))
-                        .reviewCount(number(row, "review_count"))
-                        .averageRating(decimal(row.get("average_rating")))
                         .reportCount(number(row, "report_count"))
                         .exposureToDetailRate(rate(number(row, "detail_users"), number(row, "exposure_users")))
                         .detailToApplyRate(rate(number(row, "application_count"), number(row, "detail_users")))
@@ -216,11 +199,10 @@ public class AdminServiceImpl implements AdminService {
                     UNION SELECT creator_user_id FROM activities WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM activity_registrations WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM activity_favorites WHERE created_at>=? AND created_at<?
-                    UNION SELECT reviewer_user_id FROM activity_reviews WHERE created_at>=? AND created_at<?
                     UNION SELECT reporter_user_id FROM activity_reports WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM user_feedback WHERE created_at>=? AND created_at<?
                 ) active
-                """, start, end, start, end, start, end, start, end, start, end, start, end, start, end, start, end);
+                """, start, end, start, end, start, end, start, end, start, end, start, end, start, end);
         long creators = scalar("SELECT COUNT(DISTINCT creator_user_id) FROM activities WHERE created_at>=? AND created_at<?", start, end);
         long applicants = scalar("SELECT COUNT(DISTINCT user_id) FROM activity_registrations WHERE created_at>=? AND created_at<?", start, end);
         long both = scalar("""
@@ -266,7 +248,7 @@ public class AdminServiceImpl implements AdminService {
 
         if (!adminProperties.getUsername().equals(adminUsername)
                 || !adminProperties.getPassword().equals(password)) {
-            throw new BusinessException("管理员账号或密码错误");
+            throw new BusinessException("绠＄悊鍛樿处鍙锋垨瀵嗙爜閿欒");
         }
 
         String openid = "admin:" + adminUsername;
@@ -352,7 +334,6 @@ public class AdminServiceImpl implements AdminService {
                 .approvedRegistrationCount(scalar("SELECT COUNT(*) FROM activity_registrations WHERE approved_at>=?", periodStart))
                 .cancelledRegistrationCount(scalar("SELECT COUNT(*) FROM activity_registrations WHERE status='cancelled' AND cancelled_at>=?", periodStart))
                 .pendingAppealCount(scalar("SELECT COUNT(*) FROM user_feedback WHERE type='ACCOUNT_APPEAL' AND status='PENDING'"))
-                .pendingReviewCount(scalar("SELECT COUNT(*) FROM activity_reviews WHERE status='PENDING'"))
                 .activityTrend(trend)
                 .dailyTrend(dailyTrend)
                 .build();
@@ -367,8 +348,8 @@ public class AdminServiceImpl implements AdminService {
                 Integer.class, "activity_detail_retention_days");
         return AdminSettingsVO.builder()
                 .activityDetailRetentionDays(days == null ? 30 : days)
-                .retentionDescription("活动结束30天后清理图片、二维码、报名和举报明细；活动骨架与评价永久保留。")
-                .exportDescription("报告不在服务器保存，点击下载时按所选日期实时生成Excel文件。")
+                .retentionDescription("Clean images, QR codes, registrations and reports 30 days after activity end; keep activity skeleton.")
+                .exportDescription("Reports are generated on demand as Excel files for the selected date range.")
                 .build();
     }
 
@@ -390,46 +371,46 @@ public class AdminServiceImpl implements AdminService {
             headerStyle.setFillForegroundColor(IndexedColors.LIGHT_YELLOW.getIndex());
             headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 
-            Sheet summary = workbook.createSheet("核心指标汇总");
-            addRow(summary, 0, headerStyle, "指标", "数据");
+            Sheet summary = workbook.createSheet("Summary");
+            addRow(summary, 0, headerStyle, "Metric", "Value");
             int row = 1;
-            row = addMetric(summary, row, "统计开始时间", start.format(dateTime));
-            row = addMetric(summary, row, "统计结束时间", end.format(dateTime));
-            row = addMetric(summary, row, "当前总用户数",
+            row = addMetric(summary, row, "Start time", start.format(dateTime));
+            row = addMetric(summary, row, "End time", end.format(dateTime));
+            row = addMetric(summary, row, "Total users",
                     scalar("SELECT COUNT(*) FROM users WHERE role <> 'ADMIN'"));
-            row = addMetric(summary, row, "近30天新增用户",
+            row = addMetric(summary, row, "New users",
                     scalar("SELECT COUNT(*) FROM users WHERE role <> 'ADMIN' AND created_at >= ?", start));
-            row = addMetric(summary, row, "当前数据库活动数",
+            row = addMetric(summary, row, "Total activities",
                     scalar("SELECT COUNT(*) FROM activities"));
-            row = addMetric(summary, row, "近30天新建活动",
+            row = addMetric(summary, row, "New activities",
                     scalar("SELECT COUNT(*) FROM activities WHERE created_at >= ?", start));
-            row = addMetric(summary, row, "近30天结束活动",
+            row = addMetric(summary, row, "Ended activities",
                     scalar("SELECT COUNT(*) FROM activities WHERE end_at >= ? AND end_at <= ?", start, end));
-            row = addMetric(summary, row, "近30天强制结束活动",
+            row = addMetric(summary, row, "Force-ended activities",
                     scalar("SELECT COUNT(*) FROM admin_audit_logs WHERE action_type = 'ACTIVITY_FORCE_END' AND created_at >= ?", start));
-            row = addMetric(summary, row, "近30天报名总数",
+            row = addMetric(summary, row, "Registrations",
                     scalar("SELECT COUNT(*) FROM activity_registrations WHERE created_at >= ?", start));
-            row = addMetric(summary, row, "近30天通过人数",
+            row = addMetric(summary, row, "Approved registrations",
                     scalar("SELECT COUNT(*) FROM activity_registrations WHERE approved_at >= ? AND approved_at < ?", start, end));
-            row = addMetric(summary, row, "近30天拒绝人数",
+            row = addMetric(summary, row, "Rejected registrations",
                     scalar("SELECT COUNT(*) FROM activity_registrations WHERE created_at >= ? AND status = 'rejected'", start));
-            row = addMetric(summary, row, "近30天活动收藏数",
+            row = addMetric(summary, row, "Favorites",
                     scalar("SELECT COUNT(*) FROM activity_favorites WHERE created_at >= ?", start));
-            row = addMetric(summary, row, "近30天举报数",
+            row = addMetric(summary, row, "Reports",
                     scalar("SELECT COUNT(*) FROM activity_reports WHERE created_at >= ?", start));
-            row = addMetric(summary, row, "近30天已处理举报",
+            row = addMetric(summary, row, "Handled reports",
                     scalar("SELECT COUNT(*) FROM activity_reports WHERE created_at >= ? AND status IN ('RESOLVED','DISMISSED')", start));
-            row = addMetric(summary, row, "近30天待处理举报",
+            row = addMetric(summary, row, "Pending reports",
                     scalar("SELECT COUNT(*) FROM activity_reports WHERE created_at >= ? AND status = 'PENDING'", start));
             summary.setColumnWidth(0, 32 * 256);
             summary.setColumnWidth(1, 24 * 256);
 
-            Sheet details = workbook.createSheet("活动明细");
+            Sheet details = workbook.createSheet("Activities");
             String[] headers = {
-                    "活动ID", "活动标题", "发起人", "创建时间", "开始时间", "结束时间",
-                    "状态", "招募人数", "报名数", "通过人数", "待审核", "收藏数", "举报数",
-                    "列表查看人数", "详情访问人数", "查看群码人数", "评价人数", "活动平均分",
-                    "地点", "最近管理操作", "操作理由"
+                    "Activity ID", "Title", "Creator", "Created at", "Start at", "End at",
+                    "Status", "Capacity", "Registrations", "Approved", "Pending", "Favorites", "Reports",
+                    "Exposure users", "Detail users", "QR users",
+                    "Location", "Latest admin action", "Action reason"
             };
             addRow(details, 0, headerStyle, (Object[]) headers);
             List<Map<String, Object>> activities = jdbcTemplate.queryForList("""
@@ -450,11 +431,6 @@ public class AdminServiceImpl implements AdminService {
                            (SELECT COUNT(DISTINCT e.user_id) FROM activity_analytics_events e
                                WHERE e.activity_id=a.id AND e.event_type='QR_OPEN'
                                  AND e.created_at>=? AND e.created_at<?) qr_users,
-                           (SELECT COUNT(*) FROM activity_reviews v WHERE v.activity_id=a.id
-                               AND v.target_type='activity' AND v.created_at>=? AND v.created_at<?) review_count,
-                           (SELECT AVG(v.overall_score) FROM activity_reviews v WHERE v.activity_id=a.id
-                               AND v.target_type='activity' AND v.status='NORMAL'
-                               AND v.created_at>=? AND v.created_at<?) average_rating,
                            (SELECT l.action_type FROM admin_audit_logs l
                                WHERE l.target_type = 'ACTIVITY' AND l.target_id = a.id
                                ORDER BY l.created_at DESC LIMIT 1) governance_action,
@@ -464,7 +440,7 @@ public class AdminServiceImpl implements AdminService {
                     FROM activities a
                     WHERE a.created_at >= ? OR a.end_at >= ?
                     ORDER BY a.created_at DESC
-                    """, start, end, start, end, start, end, start, end, start, end, start, start);
+                    """, start, end, start, end, start, end, start, start);
             int detailRow = 1;
             for (Map<String, Object> activity : activities) {
                 addRow(details, detailRow++, null,
@@ -473,7 +449,7 @@ public class AdminServiceImpl implements AdminService {
                         activity.get("status"), activity.get("recruit_count"), activity.get("registration_count"),
                         activity.get("joined_count"), activity.get("pending_count"), activity.get("favorite_count"),
                         activity.get("report_count"), activity.get("exposure_users"), activity.get("detail_users"),
-                        activity.get("qr_users"), activity.get("review_count"), activity.get("average_rating"),
+                        activity.get("qr_users"),
                         activity.get("location_text"),
                         activity.get("governance_action"), activity.get("governance_reason"));
             }
@@ -483,9 +459,9 @@ public class AdminServiceImpl implements AdminService {
             details.createFreezePane(0, 1);
             details.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(0, Math.max(0, detailRow - 1), 0, headers.length - 1));
 
-            Sheet daily = workbook.createSheet("每日趋势");
+            Sheet daily = workbook.createSheet("Daily Trend");
             addRow(daily, 0, headerStyle,
-                    "日期", "新增用户", "活跃用户", "新增活动", "报名数", "审核通过", "取消报名");
+                    "Date", "New users", "Active users", "New activities", "Registrations", "Approved", "Cancelled");
             int dailyRow = 1;
             for (LocalDate date = range[0]; !date.isAfter(range[1]); date = date.plusDays(1)) {
                 LocalDateTime dayStart = date.atStartOfDay();
@@ -502,42 +478,31 @@ public class AdminServiceImpl implements AdminService {
             for (int column = 0; column < 7; column++) daily.setColumnWidth(column, 18 * 256);
             daily.createFreezePane(0, 1);
 
-            Sheet users = workbook.createSheet("用户行为汇总");
-            addRow(users, 0, headerStyle, "指标", "数据");
+            Sheet users = workbook.createSheet("User Behavior");
+            addRow(users, 0, headerStyle, "Metric", "Value");
             int userRow = 1;
-            userRow = addMetric(users, userRow, "新增用户",
+            userRow = addMetric(users, userRow, "New users",
                     scalar("SELECT COUNT(*) FROM users WHERE role='USER' AND created_at>=? AND created_at<?", start, end));
-            userRow = addMetric(users, userRow, "活跃用户",
+            userRow = addMetric(users, userRow, "Active users",
                     activeUsersBetween(start, end));
-            userRow = addMetric(users, userRow, "发起活动用户",
+            userRow = addMetric(users, userRow, "Activity creators",
                     scalar("SELECT COUNT(DISTINCT creator_user_id) FROM activities WHERE created_at>=? AND created_at<?", start, end));
-            userRow = addMetric(users, userRow, "报名用户",
+            userRow = addMetric(users, userRow, "Registration users",
                     scalar("SELECT COUNT(DISTINCT user_id) FROM activity_registrations WHERE created_at>=? AND created_at<?", start, end));
-            userRow = addMetric(users, userRow, "收藏用户",
+            userRow = addMetric(users, userRow, "Favorite users",
                     scalar("SELECT COUNT(DISTINCT user_id) FROM activity_favorites WHERE created_at>=? AND created_at<?", start, end));
-            userRow = addMetric(users, userRow, "查看活动详情用户",
+            userRow = addMetric(users, userRow, "Detail view users",
                     scalar("SELECT COUNT(DISTINCT user_id) FROM activity_analytics_events WHERE event_type='DETAIL_VIEW' AND created_at>=? AND created_at<?", start, end));
-            addMetric(users, userRow, "打开群二维码用户",
+            addMetric(users, userRow, "QR open users",
                     scalar("SELECT COUNT(DISTINCT user_id) FROM activity_analytics_events WHERE event_type='QR_OPEN' AND created_at>=? AND created_at<?", start, end));
             users.setColumnWidth(0, 30 * 256);
             users.setColumnWidth(1, 20 * 256);
 
-            Sheet governance = workbook.createSheet("治理数据");
-            addRow(governance, 0, headerStyle, "指标", "数据");
+            Sheet governance = workbook.createSheet("Governance");
+            addRow(governance, 0, headerStyle, "Metric", "Value");
             int governanceRow = 1;
-            governanceRow = addMetric(governance, governanceRow, "新增举报",
-                    scalar("SELECT COUNT(*) FROM activity_reports WHERE created_at>=? AND created_at<?", start, end));
-            governanceRow = addMetric(governance, governanceRow, "已处理举报",
-                    scalar("SELECT COUNT(*) FROM activity_reports WHERE handled_at>=? AND handled_at<?", start, end));
-            governanceRow = addMetric(governance, governanceRow, "新增意见",
-                    scalar("SELECT COUNT(*) FROM user_feedback WHERE type='FEEDBACK' AND created_at>=? AND created_at<?", start, end));
-            governanceRow = addMetric(governance, governanceRow, "新增账号申诉",
-                    scalar("SELECT COUNT(*) FROM user_feedback WHERE type='ACCOUNT_APPEAL' AND created_at>=? AND created_at<?", start, end));
-            governanceRow = addMetric(governance, governanceRow, "待审核低分",
-                    scalar("SELECT COUNT(*) FROM activity_reviews WHERE status='PENDING' AND created_at>=? AND created_at<?", start, end));
-            governanceRow = addMetric(governance, governanceRow, "已忽略评价",
-                    scalar("SELECT COUNT(*) FROM activity_reviews WHERE status='EXCLUDED' AND handled_at>=? AND handled_at<?", start, end));
-            addMetric(governance, governanceRow, "禁用账号操作",
+            addMetric(governance, governanceRow, "Disabled accounts",
+
                     scalar("SELECT COUNT(*) FROM admin_audit_logs WHERE action_type='USER_DISABLED' AND created_at>=? AND created_at<?", start, end));
             governance.setColumnWidth(0, 30 * 256);
             governance.setColumnWidth(1, 20 * 256);
@@ -545,7 +510,7 @@ public class AdminServiceImpl implements AdminService {
             workbook.write(output);
             return output.toByteArray();
         } catch (Exception exception) {
-            throw new BusinessException("生成近30天Excel报告失败");
+            throw new BusinessException("Failed to generate Excel report");
         }
     }
 
@@ -649,7 +614,7 @@ public class AdminServiceImpl implements AdminService {
     public AdminActivityDetailVO getActivityDetail(Long id, LoginUser loginUser) {
         requireAdmin(loginUser);
         Activity activity = activityRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("活动不存在"));
+                .orElseThrow(() -> new BusinessException("Activity not found"));
         return buildActivityDetail(activity);
     }
 
@@ -662,30 +627,30 @@ public class AdminServiceImpl implements AdminService {
     ) {
         requireAdmin(loginUser);
         if (request == null) {
-            throw new BusinessException("请填写活动修改内容");
+            throw new BusinessException("Please fill activity update content");
         }
         requireAdminPassword(request.getPassword());
 
         String reason = request.getReason() == null ? "" : request.getReason().trim();
         if (!StringUtils.hasText(reason)) {
-            throw new BusinessException("请填写修改原因");
+            throw new BusinessException("Please fill update reason");
         }
         if (reason.length() > 500) {
-            throw new BusinessException("修改原因最多 500 字");
+            throw new BusinessException("Update reason is too long");
         }
 
         String status = request.getStatus() == null ? "" : request.getStatus().trim().toUpperCase();
         if (!Set.of("PUBLISHED", "HIDDEN", "CANCELLED").contains(status)) {
-            throw new BusinessException("活动状态无效");
+            throw new BusinessException("Invalid activity status");
         }
 
         LocalDateTime startAt = fromEpochMillis(request.getStartAt());
         LocalDateTime endAt = fromEpochMillis(request.getEndAt());
         if (startAt == null || endAt == null) {
-            throw new BusinessException("请填写活动开始和结束时间");
+            throw new BusinessException("璇峰～鍐欐椿鍔ㄥ紑濮嬪拰缁撴潫鏃堕棿");
         }
         if (!endAt.isAfter(startAt)) {
-            throw new BusinessException("活动结束时间必须晚于开始时间");
+            throw new BusinessException("Activity end time must be after start time");
         }
 
         String locationText = request.getLocationText() == null
@@ -695,11 +660,11 @@ public class AdminServiceImpl implements AdminService {
             throw new BusinessException("请填写活动地址");
         }
         if (locationText.length() > 500) {
-            throw new BusinessException("活动地址最多 500 字");
+            throw new BusinessException("Activity location is too long");
         }
 
         Activity activity = activityRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("活动不存在"));
+                .orElseThrow(() -> new BusinessException("Activity not found"));
         Map<String, Object> before = activityAuditState(activity);
 
         boolean locationChanged = !locationText.equals(activity.getLocationText());
@@ -714,7 +679,7 @@ public class AdminServiceImpl implements AdminService {
         Map<String, Object> after = activityAuditState(activity);
         notifyAdminActivityAction(
                 activity,
-                "活动信息已由管理员调整",
+                "Activity updated by admin",
                 buildAdminActivityNotificationContent(activity, before, after, reason)
         );
 
@@ -763,7 +728,7 @@ public class AdminServiceImpl implements AdminService {
                     return AdminReportItemVO.builder()
                             .id(report.getId())
                             .activityId(report.getActivityId())
-                            .activityTitle(activity == null ? "活动已删除" : activity.getTitle())
+                            .activityTitle(activity == null ? "Activity deleted" : activity.getTitle())
                             .reporterUserId(report.getReporterUserId())
                             .reporterDisplayId(displayId(reporter))
                             .reporterName(resolveName(reporter))
@@ -785,11 +750,11 @@ public class AdminServiceImpl implements AdminService {
     public void handleReport(Long id, AdminActionRequest request, LoginUser loginUser) {
         requireAdmin(loginUser);
         ActivityReport report = activityReportRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("举报不存在"));
+                .orElseThrow(() -> new BusinessException("Report not found"));
         String status = request == null ? "" : request.getStatus();
         status = status == null ? "" : status.trim().toUpperCase();
         if (!Set.of("RESOLVED", "DISMISSED").contains(status)) {
-            throw new BusinessException("举报处理状态无效");
+            throw new BusinessException("Invalid report status");
         }
         String reason = requireReason(request);
         report.setStatus(status);
@@ -800,9 +765,10 @@ public class AdminServiceImpl implements AdminService {
         notificationService.createNotification(
                 report.getReporterUserId(),
                 Notification.TYPE_REPORT_RESULT,
-                "举报处理结果",
-                ("RESOLVED".equals(status) ? "你提交的举报已核实处理。" : "你提交的举报经核查未成立。")
-                        + "处理说明：" + reason,
+                "Report result",
+                ("RESOLVED".equals(status) ? "Your report has been handled. " : "Your report was not accepted. ")
+                        + "Note: " + reason,
+
                 Notification.RELATED_ACTIVITY,
                 report.getActivityId()
         );
@@ -850,17 +816,17 @@ public class AdminServiceImpl implements AdminService {
     public void updateUserStatus(Long id, AdminActionRequest request, LoginUser loginUser) {
         requireAdmin(loginUser);
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("用户不存在"));
-        if (ROLE_ADMIN.equals(user.getRole())) throw new BusinessException("不能操作管理员账号");
+                .orElseThrow(() -> new BusinessException("User not found"));
+        if (ROLE_ADMIN.equals(user.getRole())) throw new BusinessException("Cannot operate admin account");
         String status = request == null ? "" : request.getStatus();
         status = status == null ? "" : status.trim().toUpperCase();
         if (!Set.of("ACTIVE", "DISABLED").contains(status)) {
-            throw new BusinessException("用户状态无效");
+            throw new BusinessException("Invalid user status");
         }
         String reason = requireReason(request);
         String previousStatus = user.getStatus();
         if (status.equals(previousStatus)) {
-            throw new BusinessException("用户已处于该状态");
+            throw new BusinessException("User is already in this status");
         }
         user.setStatus(status);
         userRepository.save(user);
@@ -870,9 +836,10 @@ public class AdminServiceImpl implements AdminService {
             notificationService.createNotification(
                     user.getId(),
                     Notification.TYPE_ACCOUNT_STATUS_CHANGED,
-                    "账号已被禁用",
-                    "你的账号已被管理员禁用。原因：" + reason
-                            + "。你仍可浏览活动、查看通知，并可在“更多-我要申诉”提交账号申诉。",
+                    "Account disabled",
+                    "Your account has been disabled. Reason: " + reason
+                            + ". You can still browse activities and submit an appeal from More.",
+
                     null,
                     null
             );
@@ -880,9 +847,9 @@ public class AdminServiceImpl implements AdminService {
             notificationService.createNotification(
                     user.getId(),
                     Notification.TYPE_ACCOUNT_STATUS_CHANGED,
-                    "账号已恢复使用",
-                    "你的账号已恢复正常使用。处理说明：" + reason
-                            + "。此前取消的报名不会自动恢复；被隐藏的活动需由管理员单独恢复。",
+                    "Account restored",
+                    "Your account has been restored. Note: " + reason
+                            + ". Previously cancelled registrations will not be restored automatically.",
                     null,
                     null
             );
@@ -909,7 +876,7 @@ public class AdminServiceImpl implements AdminService {
             registration.setStatus(ActivityRegistration.STATUS_CANCELLED);
             registration.setNoticeCode(ActivityRegistration.NOTICE_CANCELLED);
             registration.setCancellationReasonType("account_disabled");
-            registration.setCancellationReasonText("账号被管理员禁用");
+            registration.setCancellationReasonText("璐﹀彿琚鐞嗗憳绂佺敤");
             registration.setCancelledAt(now);
             Activity activity = activities.get(registration.getActivityId());
             if (activity != null && activity.getCreatorUserId() != null
@@ -917,9 +884,9 @@ public class AdminServiceImpl implements AdminService {
                 notificationService.createNotification(
                         activity.getCreatorUserId(),
                         Notification.TYPE_REGISTRATION_CANCELLED_CREATOR,
-                        "参与者已移出活动",
-                        resolveName(user) + " 因账号被禁用，已从「" + activity.getTitle()
-                                + "」的报名名单中移除。",
+                        "鍙備笌鑰呭凡绉诲嚭娲诲姩",
+                        resolveName(user) + " was removed from " + activity.getTitle() + " because the account was disabled.",
+
                         Notification.RELATED_ACTIVITY,
                         activity.getId()
                 );
@@ -940,9 +907,9 @@ public class AdminServiceImpl implements AdminService {
             Map<String, Object> after = activityAuditState(activity);
             notifyAdminActivityAction(
                     activity,
-                    "活动已下架",
-                    "「" + activity.getTitle() + "」因发起人账号被禁用已由管理员下架。"
-                            + "处理说明：" + reason
+                    "Activity hidden",
+                    activity.getTitle() + " has been hidden because the creator account was disabled. "
+                            + "Note: " + reason
             );
             List<ActivityRegistration> relatedRegistrations =
                     activityRegistrationRepository.findByActivityIdOrderByCreatedAtAsc(activity.getId());
@@ -952,14 +919,14 @@ public class AdminServiceImpl implements AdminService {
                         registration.setStatus(ActivityRegistration.STATUS_CANCELLED);
                         registration.setNoticeCode(ActivityRegistration.NOTICE_CANCELLED);
                         registration.setCancellationReasonType("activity_hidden");
-                        registration.setCancellationReasonText("发起人账号被禁用，活动已下架");
+                        registration.setCancellationReasonText("Creator account disabled; activity hidden");
                         registration.setCancelledAt(now);
                         notificationService.createNotification(
                                 registration.getUserId(),
                                 Notification.TYPE_ADMIN_ACTIVITY_ACTION,
-                                "报名已关闭",
-                                "「" + activity.getTitle()
-                                        + "」因发起人账号被禁用已下架，你的待审核报名已关闭。",
+                                "Registration closed",
+                                activity.getTitle()
+                                        + " was hidden because the creator account was disabled; your pending registration was closed.",
                                 Notification.RELATED_ACTIVITY,
                                 activity.getId()
                         );
@@ -970,7 +937,7 @@ public class AdminServiceImpl implements AdminService {
                     "ACTIVITY_HIDE",
                     "ACTIVITY",
                     activity.getId(),
-                    "发起人账号被禁用：" + reason,
+                    "Creator account disabled: " + reason,
                     before,
                     after
             );
@@ -996,9 +963,9 @@ public class AdminServiceImpl implements AdminService {
                 .ifPresent(registration -> notificationService.createNotification(
                         registration.getUserId(),
                         Notification.TYPE_ACTIVITY_SLOT_AVAILABLE,
-                        "活动有名额释放",
-                        "「" + activity.getTitle()
-                                + "」因参与者账号状态变化释放了名额。你是最早报名的待审核参与者，请等待发起者审核。",
+                        "Activity slot available",
+                        activity.getTitle()
+                                + " has a released slot. Please wait for creator review.",
                         Notification.RELATED_ACTIVITY,
                         activity.getId()
                 ));
@@ -1032,7 +999,7 @@ public class AdminServiceImpl implements AdminService {
     public AdminTagVO updateTag(Long id, AdminTagRequest request, LoginUser loginUser) {
         requireAdmin(loginUser);
         Tag tag = tagRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("标签不存在"));
+                .orElseThrow(() -> new BusinessException("Tag not found"));
         String oldName = tag.getName();
         tag.setName(requireTagName(request == null ? null : request.getName(), id));
         if (request != null && request.getEnabled() != null) {
@@ -1055,10 +1022,10 @@ public class AdminServiceImpl implements AdminService {
     public void deleteTag(Long id, LoginUser loginUser) {
         requireAdmin(loginUser);
         Tag tag = tagRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("标签不存在"));
+                .orElseThrow(() -> new BusinessException("Tag not found"));
         long usage = countTagUsage(id);
         if (usage > 0) {
-            throw new BusinessException("该标签仍被 " + usage + " 个活动使用，请改为停用");
+            throw new BusinessException("This tag is still used by " + usage + " activities; disable it instead");
         }
         tagRepository.delete(tag);
         saveAudit(loginUser.userId(), "TAG_DELETE", "TAG", id, tag.getName());
@@ -1073,23 +1040,23 @@ public class AdminServiceImpl implements AdminService {
         String reason = request == null ? "" : request.getReason();
         reason = reason == null ? "" : reason.trim();
         if (!StringUtils.hasText(reason)) {
-            throw new BusinessException("请填写修改原因");
+            throw new BusinessException("Please fill update reason");
         }
         if (reason.length() > 500) {
-            throw new BusinessException("修改原因最多 500 字");
+            throw new BusinessException("Update reason is too long");
         }
         Activity activity = activityRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("活动不存在"));
+                .orElseThrow(() -> new BusinessException("Activity not found"));
         Map<String, Object> before = activityAuditState(activity);
         List<Long> tagIds = request == null || request.getTagIds() == null
                 ? List.of()
                 : request.getTagIds().stream().filter(java.util.Objects::nonNull).distinct().toList();
         if (tagIds.isEmpty() || tagIds.size() > 4) {
-            throw new BusinessException("活动必须选择1至4个标签");
+            throw new BusinessException("Activity must select 1 to 4 tags");
         }
         List<Tag> tags = tagRepository.findAllById(tagIds);
         if (tags.size() != tagIds.size()) {
-            throw new BusinessException("包含不存在的标签");
+            throw new BusinessException("鍖呭惈涓嶅瓨鍦ㄧ殑鏍囩");
         }
         Map<Long, Tag> tagMap = tags.stream().collect(Collectors.toMap(Tag::getId, Function.identity()));
         List<String> names = tagIds.stream().map(tagMap::get).map(Tag::getName).toList();
@@ -1100,7 +1067,7 @@ public class AdminServiceImpl implements AdminService {
         Map<String, Object> after = activityAuditState(activity);
         notifyAdminActivityAction(
                 activity,
-                "活动标签已由管理员调整",
+                "Activity tags updated by admin",
                 buildAdminActivityNotificationContent(activity, before, after, reason)
         );
         saveAudit(
@@ -1155,11 +1122,11 @@ public class AdminServiceImpl implements AdminService {
     public void handleFeedback(Long id, AdminActionRequest request, LoginUser loginUser) {
         requireAdmin(loginUser);
         UserFeedback feedback = userFeedbackRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("意见不存在"));
+                .orElseThrow(() -> new BusinessException("Feedback not found"));
         String status = request == null ? "" : request.getStatus();
         status = status == null ? "" : status.trim().toUpperCase();
         if (!Set.of("RESOLVED", "IGNORED").contains(status)) {
-            throw new BusinessException("处理状态无效");
+            throw new BusinessException("Invalid handling status");
         }
         String note = requireReason(request);
         feedback.setStatus(status);
@@ -1170,9 +1137,10 @@ public class AdminServiceImpl implements AdminService {
         notificationService.createNotification(
                 feedback.getUserId(),
                 Notification.TYPE_FEEDBACK_RESULT,
-                "意见处理结果",
-                ("RESOLVED".equals(status) ? "你提交的意见已处理。" : "你提交的意见暂未采纳。")
-                        + "处理说明：" + note,
+                "Feedback result",
+                ("RESOLVED".equals(status) ? "Your feedback has been handled. " : "Your feedback was not accepted. ")
+                        + "Note: " + note,
+
                 null,
                 feedback.getId()
         );
@@ -1231,9 +1199,9 @@ public class AdminServiceImpl implements AdminService {
     public void handleAccountAppeal(Long id, AdminActionRequest request, LoginUser loginUser) {
         requireAdmin(loginUser);
         UserFeedback appeal = userFeedbackRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("账号申诉不存在"));
+                .orElseThrow(() -> new BusinessException("Account appeal not found"));
         if (!UserFeedback.TYPE_ACCOUNT_APPEAL.equals(appeal.getType())) {
-            throw new BusinessException("该记录不是账号申诉");
+            throw new BusinessException("This record is not an account appeal");
         }
         if (!"PENDING".equals(appeal.getStatus())) {
             throw new BusinessException("该申诉已处理");
@@ -1241,11 +1209,11 @@ public class AdminServiceImpl implements AdminService {
         String status = request == null ? "" : request.getStatus();
         status = status == null ? "" : status.trim().toUpperCase();
         if (!Set.of("APPROVED", "REJECTED").contains(status)) {
-            throw new BusinessException("申诉处理状态无效");
+            throw new BusinessException("Invalid appeal status");
         }
         String note = requireReason(request);
         User user = userRepository.findById(appeal.getUserId())
-                .orElseThrow(() -> new BusinessException("申诉用户不存在"));
+                .orElseThrow(() -> new BusinessException("Appeal user not found"));
 
         appeal.setStatus(status);
         appeal.setAdminNote(note);
@@ -1260,11 +1228,11 @@ public class AdminServiceImpl implements AdminService {
         notificationService.createNotification(
                 user.getId(),
                 Notification.TYPE_ACCOUNT_APPEAL_RESULT,
-                "账号申诉处理结果",
+                "璐﹀彿鐢宠瘔澶勭悊缁撴灉",
                 ("APPROVED".equals(status)
-                        ? "你的账号申诉已通过，账号现已恢复正常使用。"
-                        : "你的账号申诉未通过，账号仍处于禁用状态。")
-                        + "处理说明：" + note,
+                        ? "Your account appeal was approved and your account is restored. "
+                        : "Your account appeal was rejected and your account remains disabled. ")
+                        + "Note: " + note,
                 null,
                 appeal.getId()
         );
@@ -1277,245 +1245,8 @@ public class AdminServiceImpl implements AdminService {
         );
         if ("APPROVED".equals(status)) {
             saveAudit(loginUser.userId(), "USER_ACTIVE", "USER", user.getId(),
-                    "账号申诉通过：" + note);
+                    "Account appeal approved: " + note);
         }
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public AdminReviewActivityPageVO listReviewActivities(
-            String targetType,
-            String status,
-            String keyword,
-            Integer page,
-            Integer pageSize,
-            LoginUser loginUser
-    ) {
-        requireAdmin(loginUser);
-        int p = normalizePage(page);
-        int size = normalizePageSize(pageSize);
-        String normalizedType = StringUtils.hasText(targetType)
-                && Set.of(ActivityReview.TARGET_ACTIVITY, ActivityReview.TARGET_MEMBER)
-                .contains(targetType.trim().toLowerCase())
-                ? targetType.trim().toLowerCase() : null;
-        String normalizedStatus = StringUtils.hasText(status)
-                && Set.of(ActivityReview.STATUS_PENDING, ActivityReview.STATUS_NORMAL,
-                ActivityReview.STATUS_EXCLUDED).contains(status.trim().toUpperCase())
-                ? status.trim().toUpperCase() : null;
-        String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
-        Page<Activity> result = activityRepository.findAdminReviewActivities(
-                normalizedKeyword,
-                normalizedType,
-                normalizedStatus,
-                PageRequest.of(p - 1, size, Sort.by(Sort.Direction.DESC, "endAt"))
-        );
-        List<Activity> activities = result.getContent();
-        if (activities.isEmpty()) {
-            return AdminReviewActivityPageVO.builder()
-                    .list(List.of()).page(p).pageSize(size).total(result.getTotalElements()).build();
-        }
-        List<Long> activityIds = activities.stream().map(Activity::getId).toList();
-        Map<Long, List<ActivityReview>> reviewsByActivity = activityReviewRepository
-                .findByActivityIdIn(activityIds).stream()
-                .collect(Collectors.groupingBy(ActivityReview::getActivityId));
-        Map<Long, Long> participantCounts = activityRegistrationRepository
-                .findByActivityIdInAndStatusIn(activityIds, JOINED_STATUSES).stream()
-                .collect(Collectors.groupingBy(
-                        ActivityRegistration::getActivityId, Collectors.counting()));
-        LocalDateTime since = LocalDateTime.now().minusDays(30);
-        List<AdminReviewActivityItemVO> items = activities.stream().map(activity -> {
-            List<ActivityReview> reviews = reviewsByActivity.getOrDefault(activity.getId(), List.of());
-            List<ActivityReview> validActivityReviews = reviews.stream()
-                    .filter(review -> ActivityReview.TARGET_ACTIVITY.equals(review.getTargetType()))
-                    .filter(review -> ActivityReview.STATUS_NORMAL.equals(review.getStatus()))
-                    .toList();
-            List<ActivityReview> creatorRecent = activity.getCreatorUserId() == null
-                    ? List.of()
-                    : activityReviewRepository.findRecentActivityReviewsByCreatorUserId(
-                            activity.getCreatorUserId(), since);
-            return AdminReviewActivityItemVO.builder()
-                    .activityId(activity.getId())
-                    .activityTitle(activity.getTitle())
-                    .creatorUserId(activity.getCreatorUserId())
-                    .creatorName(activity.getAuthorName())
-                    .activityAverage(averageReviews(validActivityReviews))
-                    .activityReviewCount((long) validActivityReviews.size())
-                    .memberReviewCount(reviews.stream()
-                            .filter(review -> ActivityReview.TARGET_MEMBER.equals(review.getTargetType()))
-                            .count())
-                    .pendingCount(reviews.stream()
-                            .filter(review -> ActivityReview.STATUS_PENDING.equals(review.getStatus()))
-                            .count())
-                    .participantCount(activity.getArchivedParticipantCount() == null
-                            ? participantCounts.getOrDefault(activity.getId(), 0L)
-                            : activity.getArchivedParticipantCount())
-                    .participantReviewedCount(reviews.stream()
-                            .filter(review -> ActivityReview.TARGET_MEMBER.equals(review.getTargetType()))
-                            .filter(review -> java.util.Objects.equals(
-                                    review.getReviewerUserId(), activity.getCreatorUserId()))
-                            .map(ActivityReview::getTargetId).distinct().count())
-                    .creatorRecentAverage(averageReviews(creatorRecent))
-                    .creatorRecentReviewCount((long) creatorRecent.size())
-                    .creatorRecentDimensions(averageReviewDimensions(creatorRecent))
-                    .endAt(toEpochMillis(activity.getEndAt()))
-                    .build();
-        }).toList();
-        return AdminReviewActivityPageVO.builder()
-                .list(items).page(p).pageSize(size).total(result.getTotalElements()).build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public AdminReviewPageVO listActivityReviewDetails(Long activityId, LoginUser loginUser) {
-        requireAdmin(loginUser);
-        activityRepository.findById(activityId)
-                .orElseThrow(() -> new BusinessException("活动不存在"));
-        List<ActivityReview> reviews =
-                activityReviewRepository.findByActivityIdOrderByCreatedAtDesc(activityId);
-        return AdminReviewPageVO.builder()
-                .list(toAdminReviewItems(reviews))
-                .page(1).pageSize(reviews.size()).total((long) reviews.size()).build();
-    }
-
-    private List<AdminReviewItemVO> toAdminReviewItems(List<ActivityReview> reviews) {
-        Set<Long> userIds = reviews.stream()
-                .flatMap(review -> java.util.stream.Stream.of(
-                        review.getReviewerUserId(),
-                        ActivityReview.TARGET_MEMBER.equals(review.getTargetType())
-                                ? review.getTargetId()
-                                : null,
-                        review.getHandledBy()
-                ))
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, User> users = userRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        Map<Long, Activity> activities = activityRepository.findAllById(
-                        reviews.stream().map(ActivityReview::getActivityId).collect(Collectors.toSet())
-                ).stream()
-                .collect(Collectors.toMap(Activity::getId, Function.identity()));
-
-        return reviews.stream().map(review -> {
-            Activity activity = activities.get(review.getActivityId());
-            User reviewer = users.get(review.getReviewerUserId());
-            User target = ActivityReview.TARGET_MEMBER.equals(review.getTargetType())
-                    ? users.get(review.getTargetId())
-                    : null;
-            User handler = users.get(review.getHandledBy());
-            return AdminReviewItemVO.builder()
-                    .id(review.getId())
-                    .targetType(review.getTargetType())
-                    .activityId(review.getActivityId())
-                    .activityTitle(activity == null ? "活动已删除" : activity.getTitle())
-                    .reviewerUserId(review.getReviewerUserId())
-                    .reviewerName(resolveName(reviewer))
-                    .targetId(review.getTargetId())
-                    .targetName(ActivityReview.TARGET_ACTIVITY.equals(review.getTargetType())
-                            ? (activity == null ? "活动已删除" : activity.getTitle())
-                            : resolveName(target))
-                    .overallScore(review.getOverallScore().doubleValue())
-                    .scores(parseReviewScores(review.getScoresJson()))
-                    .reason(review.getReason())
-                    .batchGood(Boolean.TRUE.equals(review.getBatchGood()))
-                    .status(review.getStatus())
-                    .adminNote(review.getAdminNote())
-                    .handledBy(review.getHandledBy())
-                    .handledByName(handler == null ? null : resolveName(handler))
-                    .createdAt(toEpochMillis(review.getCreatedAt()))
-                    .updatedAt(toEpochMillis(review.getUpdatedAt()))
-                    .handledAt(toEpochMillis(review.getHandledAt()))
-                    .build();
-        }).toList();
-    }
-
-    private Double averageReviews(List<ActivityReview> reviews) {
-        return reviews.isEmpty() ? null : Math.round(
-                reviews.stream().mapToDouble(review -> review.getOverallScore().doubleValue())
-                        .average().orElse(0) * 10.0) / 10.0;
-    }
-
-    private Map<String, Double> averageReviewDimensions(List<ActivityReview> reviews) {
-        Map<String, List<Double>> values = new LinkedHashMap<>();
-        reviews.forEach(review -> parseReviewScores(review.getScoresJson()).forEach(score ->
-                values.computeIfAbsent(score.getKey(), ignored -> new ArrayList<>())
-                        .add(score.getValue())));
-        Map<String, Double> result = new LinkedHashMap<>();
-        values.forEach((key, scores) -> result.put(key,
-                Math.round(scores.stream().mapToDouble(Double::doubleValue)
-                        .average().orElse(0) * 10.0) / 10.0));
-        return result;
-    }
-
-    @Override
-    @Transactional
-    public void updateReviewStatus(Long id, AdminActionRequest request, LoginUser loginUser) {
-        requireAdmin(loginUser);
-        requireAdminPassword(request == null ? null : request.getPassword());
-        String reason = requireReason(request);
-        String status = request == null || request.getStatus() == null
-                ? ""
-                : request.getStatus().trim().toUpperCase();
-        if (!Set.of(ActivityReview.STATUS_NORMAL, ActivityReview.STATUS_EXCLUDED).contains(status)) {
-            throw new BusinessException("评价治理状态无效");
-        }
-
-        ActivityReview review = activityReviewRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("评价不存在"));
-        Map<String, Object> before = reviewAuditState(review);
-        review.setStatus(status);
-        review.setAdminNote(reason);
-        review.setHandledBy(loginUser.userId());
-        review.setHandledAt(LocalDateTime.now());
-        activityReviewRepository.save(review);
-        boolean pendingApproved = ActivityReview.STATUS_PENDING.equals(before.get("status"))
-                && ActivityReview.STATUS_NORMAL.equals(status);
-        notificationService.createNotification(
-                review.getReviewerUserId(),
-                Notification.TYPE_REVIEW_MODERATED,
-                ActivityReview.STATUS_EXCLUDED.equals(status)
-                        ? "评价未计入评分"
-                        : (pendingApproved ? "低分评价审核通过" : "评价已恢复"),
-                (ActivityReview.STATUS_EXCLUDED.equals(status)
-                        ? "你提交的一条评价已被管理员隐藏。"
-                        : (pendingApproved
-                            ? "你提交的低分评价已审核通过并计入评分。"
-                            : "你提交的一条评价已由管理员恢复。"))
-                        + "处理说明：" + reason,
-                Notification.RELATED_ACTIVITY,
-                review.getActivityId()
-        );
-        if (pendingApproved) {
-            Activity activity = activityRepository.findById(review.getActivityId()).orElse(null);
-            Long receiverUserId = ActivityReview.TARGET_ACTIVITY.equals(review.getTargetType())
-                    ? (activity == null ? null : activity.getCreatorUserId())
-                    : review.getTargetId();
-            if (receiverUserId != null && !receiverUserId.equals(review.getReviewerUserId())) {
-                User reviewer = userRepository.findById(review.getReviewerUserId()).orElse(null);
-                notificationService.createNotification(
-                        receiverUserId,
-                        Notification.TYPE_REVIEW_RECEIVED,
-                        ActivityReview.TARGET_ACTIVITY.equals(review.getTargetType())
-                                ? "活动收到新评价" : "你收到一条成员评价",
-                        resolveName(reviewer) + " 对「"
-                                + (activity == null ? "相关活动" : activity.getTitle())
-                                + "」提交的评价已审核通过。",
-                        Notification.RELATED_ACTIVITY,
-                        review.getActivityId()
-                );
-            }
-        }
-
-        saveAudit(
-                loginUser.userId(),
-                ActivityReview.STATUS_EXCLUDED.equals(status)
-                        ? "REVIEW_EXCLUDE"
-                        : "REVIEW_RESTORE",
-                "REVIEW",
-                id,
-                reason,
-                before,
-                reviewAuditState(review)
-        );
     }
 
     @Override
@@ -1525,7 +1256,7 @@ public class AdminServiceImpl implements AdminService {
     ) {
         requireAdmin(loginUser);
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException("用户不存在"));
+                .orElseThrow(() -> new BusinessException("User not found"));
         if (ROLE_ADMIN.equals(user.getRole())) {
             throw new BusinessException("不能向管理员账号发送用户通知");
         }
@@ -1535,8 +1266,8 @@ public class AdminServiceImpl implements AdminService {
         content = content == null ? "" : content.trim();
         if (!StringUtils.hasText(title)) throw new BusinessException("请填写通知标题");
         if (!StringUtils.hasText(content)) throw new BusinessException("请填写通知内容");
-        if (title.length() > 100) throw new BusinessException("通知标题最多100字");
-        if (content.length() > 500) throw new BusinessException("通知内容最多500字");
+        if (title.length() > 100) throw new BusinessException("Notification title is too long");
+        if (content.length() > 500) throw new BusinessException("Notification content is too long");
         notificationService.createNotification(
                 userId, Notification.TYPE_ADMIN_MESSAGE, title, content, null, null);
         saveAudit(loginUser.userId(), "USER_NOTIFICATION_SEND", "USER", userId, title);
@@ -1643,14 +1374,14 @@ public class AdminServiceImpl implements AdminService {
     private String requireTagName(String rawName, Long currentId) {
         String name = rawName == null ? "" : rawName.trim();
         if (!StringUtils.hasText(name)) {
-            throw new BusinessException("请填写标签名称");
+            throw new BusinessException("Please fill tag name");
         }
         if (name.length() > 40) {
-            throw new BusinessException("标签名称最多40个字符");
+            throw new BusinessException("Tag name is too long");
         }
         tagRepository.findByNameIgnoreCase(name).ifPresent(existing -> {
             if (currentId == null || !currentId.equals(existing.getId())) {
-                throw new BusinessException("标签名称已存在");
+                throw new BusinessException("Tag name already exists");
             }
         });
         return name;
@@ -1695,19 +1426,19 @@ public class AdminServiceImpl implements AdminService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
-            throw new BusinessException("标签数据保存失败");
+            throw new BusinessException("鏍囩鏁版嵁淇濆瓨澶辫触");
         }
     }
 
     private String resolveName(User user) {
-        return user == null || !StringUtils.hasText(user.getNickname()) ? "未知用户" : user.getNickname();
+        return user == null || !StringUtils.hasText(user.getNickname()) ? "鏈煡鐢ㄦ埛" : user.getNickname();
     }
 
     private String requireReason(AdminActionRequest request) {
         String reason = request == null ? "" : request.getReason();
         reason = reason == null ? "" : reason.trim();
-        if (!StringUtils.hasText(reason)) throw new BusinessException("请填写处理原因");
-        if (reason.length() > 500) throw new BusinessException("处理原因最多 500 字");
+        if (!StringUtils.hasText(reason)) throw new BusinessException("Please fill handling reason");
+        if (reason.length() > 500) throw new BusinessException("Handling reason is too long");
         return reason;
     }
 
@@ -1742,14 +1473,14 @@ public class AdminServiceImpl implements AdminService {
 
     private void requireAdmin(LoginUser loginUser) {
         if (loginUser == null || !ROLE_ADMIN.equals(loginUser.role())) {
-            throw new BusinessException("无权访问管理后台");
+            throw new BusinessException("鏃犳潈璁块棶绠＄悊鍚庡彴");
         }
     }
 
     private void requireAdminPassword(String password) {
         if (!StringUtils.hasText(password)
                 || !adminProperties.getPassword().equals(password)) {
-            throw new BusinessException("管理员密码错误");
+            throw new BusinessException("Admin password is incorrect");
         }
     }
 
@@ -1770,17 +1501,17 @@ public class AdminServiceImpl implements AdminService {
             String reason
     ) {
         List<String> changes = new ArrayList<>();
-        addActivityChange(changes, "状态", before.get("status"), after.get("status"), true);
-        addActivityChange(changes, "开始时间", before.get("startAt"), after.get("startAt"), false);
+        addActivityChange(changes, "Status", before.get("status"), after.get("status"), true);
+        addActivityChange(changes, "Start time", before.get("startAt"), after.get("startAt"), false);
         addActivityChange(changes, "结束时间", before.get("endAt"), after.get("endAt"), false);
         addActivityChange(changes, "地点", before.get("locationText"), after.get("locationText"), false);
         addActivityChange(changes, "标签", before.get("tags"), after.get("tags"), false);
 
         String changedText = changes.isEmpty()
-                ? "活动信息已调整"
-                : "修改内容：" + String.join("；", changes);
-        return "你的活动「" + activity.getTitle() + "」已由管理员修改。"
-                + "修改原因：" + reason + "。" + changedText;
+                ? "Activity information has been updated"
+                : "Changes: " + String.join("; ", changes);
+        return "Your activity " + activity.getTitle() + " was updated by an admin. "
+                + "Reason: " + reason + ". " + changedText;
     }
 
     private void addActivityChange(
@@ -1793,19 +1524,19 @@ public class AdminServiceImpl implements AdminService {
         if (java.util.Objects.equals(before, after)) {
             return;
         }
-        changes.add(label + "：" + formatActivityChangeValue(before, status)
-                + " → " + formatActivityChangeValue(after, status));
+        changes.add(label + ": " + formatActivityChangeValue(before, status)
+                + " -> " + formatActivityChangeValue(after, status));
     }
 
     private String formatActivityChangeValue(Object value, boolean status) {
         if (value == null) {
-            return "未设置";
+            return "Not set";
         }
         if (status) {
             return switch (String.valueOf(value)) {
-                case "PUBLISHED" -> "正常发布";
-                case "HIDDEN" -> "已隐藏";
-                case "CANCELLED" -> "已取消";
+                case "PUBLISHED" -> "姝ｅ父鍙戝竷";
+                case "HIDDEN" -> "Hidden";
+                case "CANCELLED" -> "Cancelled";
                 default -> String.valueOf(value);
             };
         }
@@ -1815,32 +1546,12 @@ public class AdminServiceImpl implements AdminService {
                     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
         }
         if (value instanceof List<?> list) {
-            return list.isEmpty() ? "无" : list.stream()
+            return list.isEmpty() ? "None" : list.stream()
                     .map(String::valueOf)
-                    .collect(Collectors.joining("、"));
+                    .collect(Collectors.joining(", "));
         }
         String text = String.valueOf(value);
-        return StringUtils.hasText(text) ? text : "未设置";
-    }
-
-    private Map<String, Object> reviewAuditState(ActivityReview review) {
-        Map<String, Object> state = new HashMap<>();
-        state.put("status", review.getStatus());
-        state.put("overallScore", review.getOverallScore());
-        state.put("adminNote", review.getAdminNote());
-        return state;
-    }
-
-    private List<ReviewScoreRequest> parseReviewScores(String value) {
-        if (!StringUtils.hasText(value)) return List.of();
-        try {
-            return objectMapper.readValue(
-                    value,
-                    new TypeReference<List<ReviewScoreRequest>>() {}
-            );
-        } catch (Exception exception) {
-            return List.of();
-        }
+        return StringUtils.hasText(text) ? text : "Not set";
     }
 
     private String buildMapImageUrl(String address) {
@@ -1866,7 +1577,7 @@ public class AdminServiceImpl implements AdminService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
-            throw new BusinessException("记录管理操作失败");
+            throw new BusinessException("璁板綍绠＄悊鎿嶄綔澶辫触");
         }
     }
 
@@ -1923,11 +1634,10 @@ public class AdminServiceImpl implements AdminService {
                     UNION SELECT creator_user_id FROM activities WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM activity_registrations WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM activity_favorites WHERE created_at>=? AND created_at<?
-                    UNION SELECT reviewer_user_id FROM activity_reviews WHERE created_at>=? AND created_at<?
                     UNION SELECT reporter_user_id FROM activity_reports WHERE created_at>=? AND created_at<?
                     UNION SELECT user_id FROM user_feedback WHERE created_at>=? AND created_at<?
                 ) active
-                """, start, end, start, end, start, end, start, end, start, end, start, end, start, end, start, end);
+                """, start, end, start, end, start, end, start, end, start, end, start, end, start, end);
     }
 
     private LocalDate[] analyticsRange(String startDate, String endDate) {
@@ -1937,13 +1647,13 @@ public class AdminServiceImpl implements AdminService {
             end = StringUtils.hasText(endDate) ? LocalDate.parse(endDate) : LocalDate.now();
             start = StringUtils.hasText(startDate) ? LocalDate.parse(startDate) : end.minusDays(29);
         } catch (java.time.format.DateTimeParseException exception) {
-            throw new BusinessException("日期格式应为yyyy-MM-dd");
+            throw new BusinessException("鏃ユ湡鏍煎紡搴斾负yyyy-MM-dd");
         }
         if (start.isAfter(end)) {
-            throw new BusinessException("开始日期不能晚于结束日期");
+            throw new BusinessException("Start date cannot be after end date");
         }
         if (start.isBefore(end.minusDays(365))) {
-            throw new BusinessException("单次最多查询366天");
+            throw new BusinessException("Date range cannot exceed 366 days");
         }
         return new LocalDate[]{start, end};
     }
@@ -1964,7 +1674,7 @@ public class AdminServiceImpl implements AdminService {
 
     private String formatTags(Object value) {
         List<String> tags = parseList(text(value));
-        return tags.isEmpty() ? "" : String.join("、", tags);
+        return tags.isEmpty() ? "" : String.join(", ", tags);
     }
 
     private int addMetric(Sheet sheet, int rowIndex, String label, Object value) {

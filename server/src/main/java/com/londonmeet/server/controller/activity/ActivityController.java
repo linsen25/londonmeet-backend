@@ -27,6 +27,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -47,9 +48,35 @@ public class ActivityController {
     @GetMapping
     public ApiResponse<ActivityPageVO> listActivities(
             ActivityQueryRequest request,
+            @RequestParam(value = "tagIds", required = false) String tagIds,
             @AuthenticationPrincipal LoginUser loginUser
     ) {
+        List<Long> parsedTagIds = parseTagIds(tagIds);
+        if (!parsedTagIds.isEmpty()) {
+            request.setTagIds(parsedTagIds);
+        }
         return ApiResponse.success(activityService.listActivities(request, loginUser));
+    }
+
+    private List<Long> parseTagIds(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<Long> result = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            try {
+                long id = Long.parseLong(part.trim());
+                if (id > 0) {
+                    result.add(id);
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed tag ids from query string.
+            }
+        }
+        return result;
     }
 
     @GetMapping("/me/ongoing")

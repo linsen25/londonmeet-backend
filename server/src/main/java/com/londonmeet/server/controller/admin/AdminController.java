@@ -15,8 +15,6 @@ import com.londonmeet.pojo.vo.AdminReportPageVO;
 import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
-import com.londonmeet.pojo.vo.AdminReviewPageVO;
-import com.londonmeet.pojo.vo.AdminReviewActivityPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
 import com.londonmeet.pojo.vo.AdminActivityAnalyticsVO;
 import com.londonmeet.pojo.vo.AdminUserAnalyticsVO;
@@ -260,37 +258,6 @@ public class AdminController {
             @AuthenticationPrincipal LoginUser loginUser
     ) {
         adminService.handleAccountAppeal(id, request, loginUser);
-        return ApiResponse.success();
-    }
-
-    @GetMapping("/review-activities")
-    public ApiResponse<AdminReviewActivityPageVO> reviewActivities(
-            @RequestParam(required = false) String targetType,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "20") Integer pageSize,
-            @AuthenticationPrincipal LoginUser loginUser
-    ) {
-        return ApiResponse.success(adminService.listReviewActivities(
-                targetType, status, keyword, page, pageSize, loginUser));
-    }
-
-    @GetMapping("/review-activities/{activityId}")
-    public ApiResponse<AdminReviewPageVO> activityReviewDetails(
-            @PathVariable Long activityId,
-            @AuthenticationPrincipal LoginUser loginUser
-    ) {
-        return ApiResponse.success(adminService.listActivityReviewDetails(activityId, loginUser));
-    }
-
-    @PostMapping("/reviews/{id}/status")
-    public ApiResponse<Void> updateReviewStatus(
-            @PathVariable Long id,
-            @RequestBody AdminActionRequest request,
-            @AuthenticationPrincipal LoginUser loginUser
-    ) {
-        adminService.updateReviewStatus(id, request, loginUser);
         return ApiResponse.success();
     }
 

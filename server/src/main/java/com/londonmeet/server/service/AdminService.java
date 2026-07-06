@@ -14,8 +14,6 @@ import com.londonmeet.pojo.vo.AdminReportPageVO;
 import com.londonmeet.pojo.vo.AdminSettingsVO;
 import com.londonmeet.pojo.vo.AdminTagVO;
 import com.londonmeet.pojo.vo.AdminFeedbackPageVO;
-import com.londonmeet.pojo.vo.AdminReviewPageVO;
-import com.londonmeet.pojo.vo.AdminReviewActivityPageVO;
 import com.londonmeet.pojo.vo.AdminUserPageVO;
 import com.londonmeet.pojo.vo.AdminActivityAnalyticsVO;
 import com.londonmeet.pojo.vo.AdminUserAnalyticsVO;
@@ -81,19 +79,6 @@ public interface AdminService {
     );
 
     void handleAccountAppeal(Long id, AdminActionRequest request, LoginUser loginUser);
-
-    AdminReviewActivityPageVO listReviewActivities(
-            String targetType,
-            String status,
-            String keyword,
-            Integer page,
-            Integer pageSize,
-            LoginUser loginUser
-    );
-
-    AdminReviewPageVO listActivityReviewDetails(Long activityId, LoginUser loginUser);
-
-    void updateReviewStatus(Long id, AdminActionRequest request, LoginUser loginUser);
 
     void sendUserNotification(
             Long userId, AdminNotificationRequest request, LoginUser loginUser

@@ -1,26 +1,23 @@
 package com.londonmeet.server.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.londonmeet.common.exception.BusinessException;
 import com.londonmeet.pojo.dto.request.ActivityApplyRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
+import com.londonmeet.pojo.dto.request.ActivityCancelRequest;
 import com.londonmeet.pojo.dto.request.ActivityCreateRequest;
+import com.londonmeet.pojo.dto.request.ActivityEventRequest;
 import com.londonmeet.pojo.dto.request.ActivityFavoriteRequest;
 import com.londonmeet.pojo.dto.request.ActivityQueryRequest;
-import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
-import com.londonmeet.pojo.dto.request.ActivityReportRequest;
-import com.londonmeet.pojo.dto.request.ActivityRegistrationReviewRequest;
-import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.dto.request.ActivityQrUpdateRequest;
-import com.londonmeet.pojo.dto.request.ActivityCancelRequest;
-import com.londonmeet.pojo.dto.request.ActivityCancelRegistrationRequest;
-import com.londonmeet.pojo.dto.request.ActivityEventRequest;
+import com.londonmeet.pojo.dto.request.ActivityRegistrationReviewRequest;
+import com.londonmeet.pojo.dto.request.ActivityReportRequest;
+import com.londonmeet.pojo.dto.request.ActivitySearchRequest;
+import com.londonmeet.pojo.dto.request.ActivityUpdateRequest;
 import com.londonmeet.pojo.entity.Activity;
-import com.londonmeet.pojo.entity.ActivityRegistration;
-import com.londonmeet.pojo.entity.ActivityOrganizerBlacklist;
 import com.londonmeet.pojo.entity.ActivityFavorite;
-import com.londonmeet.pojo.entity.ActivityReview;
+import com.londonmeet.pojo.entity.ActivityRegistration;
 import com.londonmeet.pojo.entity.ActivityReport;
 import com.londonmeet.pojo.entity.Notification;
 import com.londonmeet.pojo.entity.Tag;
@@ -34,14 +31,11 @@ import com.londonmeet.pojo.vo.ActivityReportVO;
 import com.londonmeet.pojo.vo.PendingReviewActivityVO;
 import com.londonmeet.pojo.vo.PendingReviewVO;
 import com.londonmeet.server.repository.ActivityRepository;
-import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.ActivityFavoriteRepository;
-import com.londonmeet.server.repository.ActivityReviewRepository;
+import com.londonmeet.server.repository.ActivityRegistrationRepository;
 import com.londonmeet.server.repository.ActivityReportRepository;
-import com.londonmeet.server.repository.ActivityOrganizerBlacklistRepository;
 import com.londonmeet.server.repository.TagRepository;
 import com.londonmeet.server.repository.UserRepository;
-import com.londonmeet.server.repository.NotificationRepository;
 import com.londonmeet.server.security.LoginUser;
 import com.londonmeet.server.service.ActivityService;
 import com.londonmeet.server.service.NotificationService;
@@ -52,7 +46,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -60,20 +53,15 @@ import java.time.ZoneId;
 import java.time.Instant;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ActivityServiceImpl implements ActivityService {
-    private static final String DEFAULT_PROFILE_MOTTO = "你好呀，准备好出去转转了么~";
-    private static final String DEFAULT_PROFILE_TAG = "未添加标签";
 
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final List<String> CAPACITY_STATUSES = List.of(
@@ -85,55 +73,14 @@ public class ActivityServiceImpl implements ActivityService {
             ActivityRegistration.STATUS_APPROVED,
             ActivityRegistration.STATUS_JOINED_GROUP
     );
-    private static final List<String> REVIEW_LIST_STATUSES = List.of(
-            ActivityRegistration.STATUS_PENDING,
-            ActivityRegistration.STATUS_APPROVED,
-            ActivityRegistration.STATUS_JOINED_GROUP,
-            ActivityRegistration.STATUS_REJECTED,
-            ActivityRegistration.STATUS_CANCELLED,
-            ActivityRegistration.STATUS_BLACKLISTED
-    );
-    private static final List<String> USER_ONGOING_STATUSES = List.of(
-            ActivityRegistration.STATUS_PENDING,
-            ActivityRegistration.STATUS_APPROVED,
-            ActivityRegistration.STATUS_JOINED_GROUP,
-            ActivityRegistration.STATUS_REJECTED,
-            ActivityRegistration.STATUS_CANCELLED
-    );
-    private static final int CREATE_MIN_LEAD_HOURS = 3;
-    private static final int REGISTERED_TIME_MIN_LEAD_HOURS = 6;
-    private static final int CANCEL_REGISTRATION_MIN_LEAD_HOURS = 3;
-    private static final int QR_CHANGE_REMINDER_COOLDOWN_HOURS = 6;
-    private static final Map<String, String> CANCELLATION_REASON_LABELS = Map.of(
-            "time_conflict", "时间冲突",
-            "temporary_issue", "临时有事",
-            "activity_changed", "活动信息变更",
-            "location_inconvenient", "地点不便",
-            "other", "其他"
-    );
-    private static final Map<String, String> ACTIVITY_CANCEL_REASON_LABELS = Map.of(
-            "time_changed", "时间安排变化",
-            "location_unavailable", "地点无法确认",
-            "not_enough_people", "人数不足",
-            "content_changed", "活动内容调整",
-            "not_holding", "不再举办",
-            "other", "其他"
-    );
     private final ActivityRepository activityRepository;
     private final ActivityFavoriteRepository activityFavoriteRepository;
     private final ActivityRegistrationRepository activityRegistrationRepository;
-    private final ActivityReviewRepository activityReviewRepository;
     private final ActivityReportRepository activityReportRepository;
-    private final ActivityOrganizerBlacklistRepository activityOrganizerBlacklistRepository;
     private final TagRepository tagRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
-    private final NotificationRepository notificationRepository;
     private final ObjectMapper objectMapper;
-    private final JdbcTemplate jdbcTemplate;
-
-    private static final Set<String> ANALYTICS_EVENT_TYPES =
-            Set.of("EXPOSURE", "DETAIL_VIEW", "QR_OPEN");
 
     @Override
     @Transactional
@@ -147,19 +94,8 @@ public class ActivityServiceImpl implements ActivityService {
 
         LocalDateTime startAt = toLocalDateTime(request.getStartAt());
         LocalDateTime endAt = toLocalDateTime(request.getEndAt());
-        LocalDateTime now = LocalDateTime.now();
-        if (startAt.isBefore(now.plusHours(CREATE_MIN_LEAD_HOURS))) {
-            throw new BusinessException("活动开始时间必须至少晚于当前时间3小时。");
-        }
-        if (startAt.isAfter(now.plusDays(30))) {
-            throw new BusinessException("活动开始时间最多可设置在30天内。");
-        }
         if (!endAt.isAfter(startAt)) {
             throw new BusinessException("Activity end time must be after start time.");
-        }
-        if (activityRepository.existsCreatorTimeConflict(
-                creator.getId(), STATUS_PUBLISHED, startAt, endAt, null)) {
-            throw new BusinessException("该时间与你发起的其他活动冲突。");
         }
 
         List<String> imageUrls = sanitizeList(request.getImageUrls(), 4);
@@ -168,7 +104,7 @@ public class ActivityServiceImpl implements ActivityService {
             throw new BusinessException("At least one activity image is required.");
         }
 
-        List<Long> tagIds = sanitizeTagIds(resolveRequestTagIds(request), 4);
+        List<Long> tagIds = sanitizeTagIds(resolveRequestTagIds(request), 1);
         if (tagIds.isEmpty()) {
             throw new BusinessException("At least one activity tag is required.");
         }
@@ -191,7 +127,6 @@ public class ActivityServiceImpl implements ActivityService {
                 .avatarUrl(creator.getAvatarUrl())
                 .coverUrl(coverUrl)
                 .startAt(startAt)
-                .originalStartAt(startAt)
                 .endAt(endAt)
                 .tagId(tagId)
                 .tagIdsJson(toJson(tagIds))
@@ -201,75 +136,19 @@ public class ActivityServiceImpl implements ActivityService {
                 .mapImageUrl(trimToNull(request.getMapImageUrl()))
                 .imageUrlsJson(toJson(imageUrls))
                 .inviteQrUrl(trimToNull(request.getInviteQrUrl()))
-                .editCount(0)
-                .qrExpiresAt(LocalDateTime.now().plusDays(request.getInviteQrRemainingDays()))
                 .status(STATUS_PUBLISHED)
                 .build();
 
-        Activity saved = activityRepository.save(activity);
-        notificationService.createNotification(
-                creator.getId(),
-                Notification.TYPE_ACTIVITY_PUBLISHED,
-                "活动已成功刊登",
-                "你的活动「" + saved.getTitle()
-                        + "」已经成功刊登。活动开始前可继续修改；如已有用户报名，调整开始时间必须至少晚于当前时间6小时。",
-                Notification.RELATED_ACTIVITY,
-                saved.getId()
-        );
-        return toPostVO(saved, false);
-    }
-
-    @Override
-    @Transactional
-    public void recordEvents(ActivityEventRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        if (request == null || !StringUtils.hasText(request.getEventType())) {
-            throw new BusinessException("Event type is required.");
-        }
-        String eventType = request.getEventType().trim().toUpperCase();
-        if (!ANALYTICS_EVENT_TYPES.contains(eventType)) {
-            throw new BusinessException("Unsupported analytics event.");
-        }
-        List<Long> activityIds = request.getActivityIds() == null
-                ? List.of()
-                : request.getActivityIds().stream()
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .limit(50)
-                .toList();
-        if (activityIds.isEmpty()) {
-            return;
-        }
-        Map<Long, Activity> activityMap = activityRepository.findAllById(activityIds).stream()
-                .collect(Collectors.toMap(Activity::getId, Function.identity()));
-        LocalDateTime hour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
-        for (Long activityId : activityIds) {
-            Activity activity = activityMap.get(activityId);
-            if (activity == null) continue;
-            if ("QR_OPEN".equals(eventType)) {
-                if ("DISABLED".equals(loginUser.status())) continue;
-                if (!canOpenActivityQr(activity, LocalDateTime.now())) continue;
-                boolean approvedParticipant = activityRegistrationRepository
-                        .findByActivityIdAndUserId(activityId, userId)
-                        .map(registration -> CAPACITY_STATUSES.contains(registration.getStatus()))
-                        .orElse(false);
-                if (!approvedParticipant) continue;
-            }
-            jdbcTemplate.update("""
-                    INSERT IGNORE INTO activity_analytics_events
-                        (user_id, activity_id, event_type, event_hour, created_at)
-                    VALUES (?, ?, ?, ?, NOW())
-                    """, userId, activityId, eventType, hour);
-        }
+        return toPostVO(activityRepository.save(activity));
     }
 
     @Override
     @Transactional
     public ActivityPageVO listActivities(ActivityQueryRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        String range = normalizeRange(request.getRange());
-        int page = normalizePage(request.getPage());
-        int pageSize = normalizePageSize(request.getPageSize());
+        String range = normalizeRange(request == null ? null : request.getRange());
+        int page = normalizePage(request == null ? null : request.getPage());
+        int pageSize = normalizePageSize(request == null ? null : request.getPageSize());
+        List<Long> tagIds = sanitizeTagIds(request == null ? null : request.getTagIds(), 10);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -280,15 +159,26 @@ public class ActivityServiceImpl implements ActivityService {
             default -> today.plusDays(1).atStartOfDay();
         };
 
-        Page<Activity> result = activityRepository.findVisibleActivities(
-                userId,
-                STATUS_PUBLISHED,
-                now,
-                rangeEnd,
-                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"))
-        );
+        PageRequest pageRequest = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Activity> result = tagIds.isEmpty()
+                ? activityRepository.findByStatusAndEndAtAfterAndEndAtBefore(
+                        STATUS_PUBLISHED,
+                        now,
+                        rangeEnd,
+                        pageRequest
+                )
+                : activityRepository.findByStatusAndEndAtAfterAndEndAtBeforeAndAnyTagIn(
+                        STATUS_PUBLISHED,
+                        now,
+                        rangeEnd,
+                        tagIds,
+                        toJson(tagIds),
+                        pageRequest
+                );
 
-        List<ActivityPostVO> list = toPostVOs(result.getContent(), userId);
+        List<ActivityPostVO> list = result.getContent().stream()
+                .map(this::toPostVO)
+                .toList();
 
         return ActivityPageVO.builder()
                 .list(list)
@@ -301,7 +191,6 @@ public class ActivityServiceImpl implements ActivityService {
     @Override
     @Transactional(readOnly = true)
     public ActivityPageVO searchActivities(ActivitySearchRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
         int page = normalizePage(request.getPage());
         int pageSize = normalizePageSize(request.getPageSize());
         String keyword = trimToNull(request.getKeyword());
@@ -316,8 +205,7 @@ public class ActivityServiceImpl implements ActivityService {
                     .build();
         }
 
-        Page<Activity> result = activityRepository.searchVisiblePublishedActivities(
-                userId,
+        Page<Activity> result = activityRepository.searchPublishedActivities(
                 STATUS_PUBLISHED,
                 LocalDateTime.now(),
                 keyword,
@@ -327,7 +215,7 @@ public class ActivityServiceImpl implements ActivityService {
         );
 
         return ActivityPageVO.builder()
-                .list(toPostVOs(result.getContent(), userId))
+                .list(result.getContent().stream().map(this::toPostVO).toList())
                 .page(page)
                 .pageSize(pageSize)
                 .hasMore(result.hasNext())
@@ -345,82 +233,15 @@ public class ActivityServiceImpl implements ActivityService {
                 userId,
                 STATUS_PUBLISHED,
                 LocalDateTime.now(),
-                USER_ONGOING_STATUSES,
+                CONFLICT_STATUSES,
                 PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.ASC, "endAt"))
         );
 
         return ActivityPageVO.builder()
-                .list(toPostVOs(result.getContent(), userId))
+                .list(result.getContent().stream().map(this::toPostVO).toList())
                 .page(page)
                 .pageSize(pageSize)
                 .hasMore(result.hasNext())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ActivityPageVO listMyCreatedActivities(ActivityQueryRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        int page = normalizePage(request.getPage());
-        int pageSize = normalizePageSize(request.getPageSize());
-        Page<Activity> result = activityRepository.findByCreatorUserIdAndStatusAndEndAtAfter(
-                userId,
-                STATUS_PUBLISHED,
-                LocalDateTime.now(),
-                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.ASC, "startAt"))
-        );
-        return ActivityPageVO.builder()
-                .list(toPostVOs(result.getContent(), userId))
-                .page(page)
-                .pageSize(pageSize)
-                .hasMore(result.hasNext())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ActivityPageVO listFavoriteActivities(ActivityQueryRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        int page = normalizePage(request.getPage());
-        int pageSize = normalizePageSize(request.getPageSize());
-
-        Page<Activity> result = activityRepository.findActiveFavorites(
-                userId,
-                STATUS_PUBLISHED,
-                LocalDateTime.now(),
-                PageRequest.of(page - 1, pageSize)
-        );
-
-        return ActivityPageVO.builder()
-                .list(result.getContent().stream().map(activity -> toPostVO(activity, true)).toList())
-                .page(page)
-                .pageSize(pageSize)
-                .hasMore(result.hasNext())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ActivityPageVO listHistoryActivities(ActivityQueryRequest request, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        int page = normalizePage(request.getPage());
-        int pageSize = normalizePageSize(request.getPageSize());
-        String type = request == null || request.getType() == null
-                ? "joined"
-                : request.getType().trim().toLowerCase();
-        List<Activity> all = "created".equals(type)
-                ? activityRepository.findCreatedEndedActivities(
-                        userId, STATUS_PUBLISHED, LocalDateTime.now())
-                : activityRepository.findJoinedEndedActivities(
-                        userId, STATUS_PUBLISHED, LocalDateTime.now(), CAPACITY_STATUSES);
-        int from = Math.min((page - 1) * pageSize, all.size());
-        int to = Math.min(from + pageSize, all.size());
-
-        return ActivityPageVO.builder()
-                .list(toPostVOs(all.subList(from, to), userId))
-                .page(page)
-                .pageSize(pageSize)
-                .hasMore(to < all.size())
                 .build();
     }
 
@@ -456,236 +277,18 @@ public class ActivityServiceImpl implements ActivityService {
                 .map(registration -> {
                     Activity activity = activityById.get(registration.getActivityId());
                     User user = userById.get(registration.getUserId());
-                    return toPendingReviewVO(registration, activity, user, null);
-                })
-                .toList();
-    }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<PendingReviewActivityVO> listPendingReviewActivities(LoginUser loginUser) {
-        Long creatorUserId = requireUserId(loginUser);
-        Page<Activity> activities = activityRepository.findCreatedOngoingActivitiesForReview(
-                creatorUserId,
-                STATUS_PUBLISHED,
-                LocalDateTime.now(),
-                PageRequest.of(0, 200, Sort.by(Sort.Direction.ASC, "startAt"))
-        );
-        List<Activity> list = activities.getContent();
-        if (list.isEmpty()) {
-            return List.of();
-        }
-
-        List<Long> activityIds = list.stream().map(Activity::getId).toList();
-        Map<Long, List<ActivityRegistration>> registrationsByActivity =
-                activityRegistrationRepository.findByActivityIdIn(activityIds).stream()
-                        .collect(Collectors.groupingBy(ActivityRegistration::getActivityId));
-
-        return list.stream()
-                .map(activity -> {
-                    List<ActivityRegistration> registrations =
-                            registrationsByActivity.getOrDefault(activity.getId(), List.of());
-                    int pendingCount = countStatus(registrations, ActivityRegistration.STATUS_PENDING);
-                    int approvedCount = (int) registrations.stream()
-                            .filter(item -> CAPACITY_STATUSES.contains(item.getStatus()))
-                            .count();
-                    int rejectedCount = countStatus(registrations, ActivityRegistration.STATUS_REJECTED);
-                    Long latestAppliedAt = registrations.stream()
-                            .map(ActivityRegistration::getCreatedAt)
-                            .filter(Objects::nonNull)
-                            .max(LocalDateTime::compareTo)
-                            .map(this::toEpochMillis)
-                            .orElse(null);
-
-                    return PendingReviewActivityVO.builder()
-                            .activityId(activity.getId())
-                            .activityTitle(activity.getTitle())
-                            .startAt(toEpochMillis(activity.getStartAt()))
-                            .endAt(toEpochMillis(activity.getEndAt()))
-                            .locationText(activity.getLocationText())
-                            .totalRegistrationCount(registrations.size())
-                            .pendingCount(pendingCount)
-                            .approvedCount(approvedCount)
-                            .rejectedCount(rejectedCount)
-                            .hasUnread(pendingCount > 0)
-                            .latestAppliedAt(latestAppliedAt)
+                    return PendingReviewVO.builder()
+                            .registrationId(registration.getId())
+                            .activityId(registration.getActivityId())
+                            .userId(registration.getUserId())
+                            .activityTitle(activity == null ? "" : activity.getTitle())
+                            .nickname(user == null ? "MeetFun User" : resolveAuthorName(user))
+                            .avatarUrl(user == null ? null : user.getAvatarUrl())
+                            .appliedAt(toEpochMillis(registration.getCreatedAt()))
                             .build();
                 })
                 .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<PendingReviewVO> listActivityReviewRegistrations(
-            Long activityId,
-            String status,
-            LoginUser loginUser
-    ) {
-        Long creatorUserId = requireUserId(loginUser);
-        Activity activity = activityRepository.findById(activityId)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        requireCreator(activity, creatorUserId);
-
-        String normalizedStatus = trimToNull(status);
-        List<ActivityRegistration> registrations = normalizedStatus == null || "all".equals(normalizedStatus)
-                ? activityRegistrationRepository.findByActivityIdOrderByCreatedAtAsc(activityId)
-                : activityRegistrationRepository.findByActivityIdAndStatusOrderByCreatedAtAsc(activityId, normalizedStatus);
-        registrations = registrations.stream()
-                .filter(registration -> REVIEW_LIST_STATUSES.contains(registration.getStatus()))
-                .toList();
-        if (registrations.isEmpty()) {
-            return List.of();
-        }
-
-        Map<Long, User> userById = userRepository.findAllById(
-                        registrations.stream().map(ActivityRegistration::getUserId).distinct().toList()
-                ).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        return registrations.stream()
-                .map(registration -> toPendingReviewVO(
-                        registration,
-                        activity,
-                        userById.get(registration.getUserId()),
-                        null
-                ))
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<PendingReviewVO> listOrganizerBlacklist(Long activityId, LoginUser loginUser) {
-        Long creatorUserId = requireUserId(loginUser);
-        Activity activity = activityRepository.findById(activityId)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        requireCreator(activity, creatorUserId);
-
-        List<ActivityOrganizerBlacklist> blacklists =
-                activityOrganizerBlacklistRepository.findByOrganizerUserIdAndActiveTrueOrderByCreatedAtDesc(creatorUserId);
-        if (blacklists.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, User> userById = userRepository.findAllById(
-                        blacklists.stream().map(ActivityOrganizerBlacklist::getBlockedUserId).distinct().toList()
-                ).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        return blacklists.stream()
-                .map(item -> toBlacklistVO(item, userById.get(item.getBlockedUserId()), null))
-                .toList();
-    }
-
-    private int countStatus(List<ActivityRegistration> registrations, String status) {
-        return (int) registrations.stream()
-                .filter(item -> status.equals(item.getStatus()))
-                .count();
-    }
-
-    private Map<String, Double> resolveMemberRatings(Long userId) {
-        List<ActivityReview> reviews = activityReviewRepository.findByTargetTypeAndTargetIdAndStatus(
-                ActivityReview.TARGET_MEMBER,
-                userId,
-                ActivityReview.STATUS_NORMAL
-        ).stream()
-                .filter(review -> review.getCreatedAt() != null
-                        && !review.getCreatedAt().isBefore(LocalDateTime.now().minusDays(30)))
-                .toList();
-        if (reviews.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, List<Double>> values = new HashMap<>();
-        for (ActivityReview review : reviews) {
-            try {
-                List<com.londonmeet.pojo.dto.request.ReviewScoreRequest> scores =
-                        objectMapper.readValue(
-                                review.getScoresJson(),
-                                new TypeReference<List<com.londonmeet.pojo.dto.request.ReviewScoreRequest>>() {}
-                        );
-                for (com.londonmeet.pojo.dto.request.ReviewScoreRequest score : scores) {
-                    if (score != null && StringUtils.hasText(score.getKey()) && score.getValue() != null) {
-                        values.computeIfAbsent(score.getKey(), ignored -> new ArrayList<>())
-                                .add(score.getValue());
-                    }
-                }
-            } catch (Exception ignored) {
-                // Skip malformed historical review data.
-            }
-        }
-        Map<String, Double> result = new HashMap<>();
-        for (String key : List.of("punctual", "communication", "friendly")) {
-            List<Double> scores = values.getOrDefault(key, List.of());
-            if (!scores.isEmpty()) {
-                double average = scores.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-                result.put(key, Math.round(average * 10.0) / 10.0);
-            }
-        }
-        return result;
-    }
-
-    private PendingReviewVO toPendingReviewVO(
-            ActivityRegistration registration,
-            Activity activity,
-            User user,
-            ActivityOrganizerBlacklist blacklist
-    ) {
-        Map<String, Double> memberRatings = resolveMemberRatings(registration.getUserId());
-        return PendingReviewVO.builder()
-                .registrationId(registration.getId())
-                .activityId(registration.getActivityId())
-                .userId(registration.getUserId())
-                .displayId(user == null ? null : user.getDisplayId())
-                .activityTitle(activity == null ? "" : activity.getTitle())
-                .nickname(user == null ? "MeetFun User" : resolveAuthorName(user))
-                .avatarUrl(user == null ? null : user.getAvatarUrl())
-                .applicationText(registration.getApplicationText())
-                .status(registration.getStatus())
-                .reviewReasonType(ActivityRegistration.STATUS_CANCELLED.equals(registration.getStatus())
-                        ? registration.getCancellationReasonType() : registration.getReviewReasonType())
-                .reviewReasonText(ActivityRegistration.STATUS_CANCELLED.equals(registration.getStatus())
-                        ? registration.getCancellationReasonText() : registration.getReviewReasonText())
-                .reviewedAt(toEpochMillis(registration.getReviewedAt()))
-                .blacklistId(blacklist == null ? null : blacklist.getId())
-                .blacklistedAt(blacklist == null ? null : toEpochMillis(blacklist.getCreatedAt()))
-                .punctualRating(memberRatings.get("punctual"))
-                .communicationRating(memberRatings.get("communication"))
-                .friendlyRating(memberRatings.get("friendly"))
-                .reviewCount(activityReviewRepository
-                        .countByTargetTypeAndTargetIdAndStatusAndCreatedAtGreaterThanEqual(
-                                ActivityReview.TARGET_MEMBER,
-                                registration.getUserId(),
-                                ActivityReview.STATUS_NORMAL,
-                                LocalDateTime.now().minusDays(30)))
-                .appliedAt(toEpochMillis(registration.getCreatedAt()))
-                .build();
-    }
-
-    private PendingReviewVO toBlacklistVO(
-            ActivityOrganizerBlacklist blacklist,
-            User user,
-            ActivityRegistration registration
-    ) {
-        Long userId = blacklist.getBlockedUserId();
-        Map<String, Double> memberRatings = resolveMemberRatings(userId);
-        return PendingReviewVO.builder()
-                .registrationId(registration == null ? null : registration.getId())
-                .activityId(registration == null ? null : registration.getActivityId())
-                .userId(userId)
-                .displayId(user == null ? null : user.getDisplayId())
-                .nickname(user == null ? "MeetFun User" : resolveAuthorName(user))
-                .avatarUrl(user == null ? null : user.getAvatarUrl())
-                .status(ActivityRegistration.STATUS_BLACKLISTED)
-                .reviewReasonType(blacklist.getReasonType())
-                .reviewReasonText(blacklist.getReasonText())
-                .blacklistId(blacklist.getId())
-                .blacklistedAt(toEpochMillis(blacklist.getCreatedAt()))
-                .punctualRating(memberRatings.get("punctual"))
-                .communicationRating(memberRatings.get("communication"))
-                .friendlyRating(memberRatings.get("friendly"))
-                .reviewCount(activityReviewRepository
-                        .countByTargetTypeAndTargetIdAndStatusAndCreatedAtGreaterThanEqual(
-                                ActivityReview.TARGET_MEMBER,
-                                userId,
-                                ActivityReview.STATUS_NORMAL,
-                                LocalDateTime.now().minusDays(30)))
-                .build();
     }
 
     @Override
@@ -699,309 +302,23 @@ public class ActivityServiceImpl implements ActivityService {
         if (loginUser != null && loginUser.userId() != null) {
             registration = activityRegistrationRepository.findByActivityIdAndUserId(id, loginUser.userId());
             isCreator = loginUser.userId().equals(activity.getCreatorUserId());
-            if (!isCreator && activityOrganizerBlacklistRepository.existsByOrganizerUserIdAndBlockedUserIdAndActiveTrue(
-                    activity.getCreatorUserId(), loginUser.userId())) {
-                throw new BusinessException("Activity is not available.");
-            }
         }
 
-        if (!STATUS_PUBLISHED.equals(activity.getStatus()) && !isCreator) {
-            throw new BusinessException("Activity is not available.");
-        }
-
-        boolean favorited = loginUser != null
-                && loginUser.userId() != null
-                && activityFavoriteRepository.findByUserIdAndActivityId(loginUser.userId(), id).isPresent();
-
-        boolean canExposeQr = loginUser == null || !"DISABLED".equals(loginUser.status());
-        return toDetailVO(activity, registration.orElse(null), isCreator, favorited, canExposeQr);
-    }
-
-    @Override
-    @Transactional
-    public ActivityDetailVO updateActivity(
-            Long id,
-            ActivityUpdateRequest request,
-            LoginUser loginUser
-    ) {
-        Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        requireCreator(activity, userId);
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
-            throw new BusinessException("该活动不可修改。");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime newStart = toLocalDateTime(request.getStartAt());
-        LocalDateTime newEnd = toLocalDateTime(request.getEndAt());
-        if (!newEnd.isAfter(newStart)) {
-            throw new BusinessException("活动结束时间必须晚于开始时间。");
-        }
-
-        int approvedCount = capacityCount(activity.getId());
-        if (request.getRecruitCount() < approvedCount) {
-            throw new BusinessException("招募人数不能少于已通过人数 " + approvedCount + "。");
-        }
-
-        List<String> imageUrls = sanitizeList(request.getImageUrls(), 4);
-        String coverUrl = firstText(imageUrls);
-        if (!StringUtils.hasText(coverUrl)) {
-            throw new BusinessException("至少需要一张活动图片。");
-        }
-        List<Long> tagIds = sanitizeTagIds(request.getTagIds(), 4);
-        if (tagIds.isEmpty()) {
-            throw new BusinessException("至少选择一个活动标签。");
-        }
-
-        boolean hasRegistrations = activityRegistrationRepository.countByActivityId(activity.getId()) > 0;
-        boolean started = !now.isBefore(activity.getStartAt());
-        boolean ended = now.isAfter(activity.getEndAt());
-        boolean timeChanged = !Objects.equals(activity.getStartAt(), newStart)
-                || !Objects.equals(activity.getEndAt(), newEnd);
-        boolean locationChanged = textChanged(activity.getLocationText(), request.getLocationText());
-        boolean mapImageChanged = textChanged(activity.getMapImageUrl(), request.getMapImageUrl());
-        boolean imagesChanged = !parseStringList(activity.getImageUrlsJson()).equals(imageUrls);
-        boolean contentChanged = textChanged(activity.getContent(), request.getContent());
-        boolean tagsChanged = !parseLongList(activity.getTagIdsJson()).equals(tagIds);
-        boolean recruitChanged = !Objects.equals(
-                normalizeRecruitCount(activity.getRecruitCount()),
-                normalizeRecruitCount(request.getRecruitCount()));
-        boolean hasAnyChanges = timeChanged || locationChanged || mapImageChanged
-                || imagesChanged || contentChanged || tagsChanged || recruitChanged;
-
-        if (ended) {
-            throw new BusinessException("活动已结束，不能修改活动信息。");
-        }
-        if (started) {
-            if (timeChanged) {
-                throw new BusinessException("活动已开始，不能修改活动时间。");
-            }
-            if (locationChanged || mapImageChanged) {
-                throw new BusinessException("活动已开始，不能修改活动地点。");
-            }
-            if (imagesChanged) {
-                throw new BusinessException("活动已开始，不能修改活动图片。");
-            }
-            if (tagsChanged || recruitChanged) {
-                throw new BusinessException("活动已开始，不能修改活动标签或招募人数。");
-            }
-            if (contentChanged && !isAppendOnly(activity.getContent(), request.getContent())) {
-                throw new BusinessException("活动已开始，正文只能补充说明，不能修改原内容。");
-            }
-        } else if (hasRegistrations && timeChanged
-                && newStart.isBefore(now.plusHours(REGISTERED_TIME_MIN_LEAD_HOURS))) {
-            throw new BusinessException("已有用户报名，修改后的活动开始时间必须至少晚于当前时间6小时。");
-        } else if (!hasRegistrations && timeChanged
-                && newStart.isBefore(now.plusHours(CREATE_MIN_LEAD_HOURS))) {
-            throw new BusinessException("活动开始时间必须至少晚于当前时间3小时。");
-        }
-
-        if (timeChanged && activityRepository.existsCreatorTimeConflict(
-                userId, STATUS_PUBLISHED, newStart, newEnd, activity.getId())) {
-            throw new BusinessException("修改后的时间与你发起的其他活动冲突。");
-        }
-
-        if (!hasAnyChanges) {
-            return toDetailVO(activity, null, true, false, true);
-        }
-
-        activity.setContent(request.getContent().trim());
-        activity.setTagId(tagIds.get(0));
-        activity.setTagIdsJson(toJson(tagIds));
-        activity.setTagsJson(toJson(resolveTagNames(tagIds)));
-        activity.setStartAt(newStart);
-        activity.setEndAt(newEnd);
-        activity.setRecruitCount(normalizeRecruitCount(request.getRecruitCount()));
-        activity.setLocationText(request.getLocationText().trim());
-        activity.setMapImageUrl(trimToNull(request.getMapImageUrl()));
-        activity.setImageUrlsJson(toJson(imageUrls));
-        activity.setCoverUrl(coverUrl);
-        Activity saved = activityRepository.save(activity);
-
-        if (hasRegistrations) {
-            notifyRegisteredParticipants(
-                    saved,
-                    Notification.TYPE_ACTIVITY_UPDATED,
-                    "活动信息已变更",
-                    "您报名的「" + saved.getTitle() + "」信息已变更，请前往主页—活动中查看。"
-            );
-        }
-        return toDetailVO(saved, null, true, false, true);
-    }
-
-    @Override
-    @Transactional
-    public ActivityDetailVO updateActivityQr(
-            Long id,
-            ActivityQrUpdateRequest request,
-            LoginUser loginUser
-    ) {
-        Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        requireCreator(activity, userId);
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())
-                || !activity.getEndAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("活动已结束，不能更换群二维码。");
-        }
-
-        activity.setInviteQrUrl(request.getInviteQrUrl().trim());
-        activity.setQrExpiresAt(LocalDateTime.now().plusDays(request.getRemainingDays()));
-        activity.setQrReminderSentAt(null);
-        Activity saved = activityRepository.save(activity);
-        notifyRegisteredParticipants(
-                saved,
-                Notification.TYPE_ACTIVITY_QR_UPDATED,
-                "群二维码已更新",
-                "您报名的「" + saved.getTitle() + "」群二维码已更新，请前往主页—活动中查看。"
-        );
-        return toDetailVO(saved, null, true, false, true);
-    }
-
-    @Override
-    @Transactional
-    public ActivityDetailVO cancelActivity(Long id, ActivityCancelRequest request, LoginUser loginUser) {
-        Long creatorUserId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        requireCreator(activity, creatorUserId);
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
-            throw new BusinessException("璇ユ椿鍔ㄥ綋鍓嶄笉鍙笅鏋躲€?");
-        }
-        if (activity.getStartAt() == null || !activity.getStartAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("娲诲姩宸插紑濮嬶紝涓嶈兘鍐嶄笅鏋躲€?");
-        }
-
-        String reasonType = trimToNull(request == null ? null : request.getReasonType());
-        String reasonLabel = reasonType == null ? null : ACTIVITY_CANCEL_REASON_LABELS.get(reasonType);
-        if (reasonLabel == null) {
-            throw new BusinessException("请选择有效的下架原因。");
-        }
-        String reasonText = trimToNull(request.getReasonText());
-        if ("other".equals(reasonType) && reasonText == null) {
-            throw new BusinessException("请填写其他下架原因。");
-        }
-        if (reasonText != null && reasonText.length() > 200) {
-            throw new BusinessException("下架原因最多200字。");
-        }
-        String reason = reasonLabel + (reasonText == null ? "" : "：" + reasonText);
-
-        Set<Long> notifiedUserIds = new java.util.HashSet<>();
-        List<ActivityRegistration> registrations =
-                activityRegistrationRepository.findByActivityIdOrderByCreatedAtAsc(activity.getId());
-        for (ActivityRegistration registration : registrations) {
-            String status = registration.getStatus();
-            if (ActivityRegistration.STATUS_PENDING.equals(status)
-                    || CAPACITY_STATUSES.contains(status)) {
-                registration.setStatus(ActivityRegistration.STATUS_ACTIVITY_CANCELLED);
-                registration.setNoticeCode(ActivityRegistration.NOTICE_ACTIVITY_CANCELLED);
-                registration.setReviewedBy(creatorUserId);
-                registration.setReviewedAt(LocalDateTime.now());
-                registration.setReviewReasonType(reasonType);
-                registration.setReviewReasonText(reason);
-                activityRegistrationRepository.save(registration);
-
-                boolean approved = CAPACITY_STATUSES.contains(status);
-                notificationService.createNotification(
-                        registration.getUserId(),
-                        Notification.TYPE_ACTIVITY_CANCELLED,
-                        approved ? "活动已下架" : "报名申请已关闭",
-                        approved
-                                ? "你报名通过的「" + activity.getTitle() + "」已由发起者下架。原因：" + reason
-                                : "你申请报名的「" + activity.getTitle() + "」已由发起者下架，申请已自动关闭。原因：" + reason,
-                        Notification.RELATED_ACTIVITY,
-                        activity.getId()
-                );
-                notifiedUserIds.add(registration.getUserId());
-            }
-        }
-
-        activityFavoriteRepository.findByActivityId(activity.getId()).stream()
-                .map(ActivityFavorite::getUserId)
-                .filter(userId -> !creatorUserId.equals(userId))
-                .filter(userId -> !notifiedUserIds.contains(userId))
-                .distinct()
-                .forEach(userId -> notificationService.createNotification(
-                        userId,
-                        Notification.TYPE_ACTIVITY_CANCELLED,
-                        "收藏的活动已下架",
-                        "你收藏的「" + activity.getTitle() + "」已由发起者下架。原因：" + reason,
-                        Notification.RELATED_ACTIVITY,
-                        activity.getId()
-                ));
-
-        activity.setStatus("CANCELLED");
-        Activity saved = activityRepository.save(activity);
-        return toDetailVO(saved, null, true, false, false);
-    }
-
-    @Override
-    @Transactional
-    public void remindCreatorToUpdateQr(Long id, LoginUser loginUser) {
-        Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        if (userId.equals(activity.getCreatorUserId())) {
-            throw new BusinessException("发起者无需提醒自己更换二维码。");
-        }
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())
-                || activity.getEndAt() == null
-                || !activity.getEndAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("活动已结束，不能发送提醒。");
-        }
-
-        ActivityRegistration registration = activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
-                .orElseThrow(() -> new BusinessException("只有已通过的参与者可以提醒发起者。"));
-        if (!CAPACITY_STATUSES.contains(registration.getStatus())) {
-            throw new BusinessException("只有已通过的参与者可以提醒发起者。");
-        }
-
-        LocalDateTime cooldownStart = LocalDateTime.now().minusHours(QR_CHANGE_REMINDER_COOLDOWN_HOURS);
-        long recentReminders = notificationRepository
-                .countByUserIdAndTypeAndRelatedTypeAndRelatedIdAndCreatedAtAfter(
-                        activity.getCreatorUserId(),
-                        Notification.TYPE_ACTIVITY_QR_CHANGE_REQUESTED,
-                        Notification.RELATED_ACTIVITY,
-                        activity.getId(),
-                        cooldownStart
-                );
-        if (recentReminders > 0) {
-            throw new BusinessException("已经提醒过发起者，请稍后再查看。");
-        }
-
-        User participant = userRepository.findById(userId).orElse(null);
-        String participantName = resolveAuthorName(participant);
-        notificationService.createNotification(
-                activity.getCreatorUserId(),
-                Notification.TYPE_ACTIVITY_QR_CHANGE_REQUESTED,
-                "有人提醒你更换群二维码",
-                participantName + " 提醒你「" + activity.getTitle() + "」的群二维码可能无法识别，请及时更新。",
-                Notification.RELATED_ACTIVITY,
-                activity.getId()
-        );
+        return toDetailVO(activity, registration.orElse(null), isCreator);
     }
 
     @Override
     @Transactional
     public ActivityRegistrationVO applyActivity(Long id, ActivityApplyRequest request, LoginUser loginUser) {
         Long userId = requireUserId(loginUser);
-        String applicationText = trimApplicationText(request == null ? null : request.getApplicationText());
         Activity activity = activityRepository.findLockedById(id)
                 .orElseThrow(() -> new BusinessException("Activity not found."));
 
         if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
             throw new BusinessException("Activity is not available.");
         }
-        if (userId.equals(activity.getCreatorUserId())) {
-            throw new BusinessException("不能报名自己发起的活动。");
-        }
-        if (activityOrganizerBlacklistRepository.existsByOrganizerUserIdAndBlockedUserIdAndActiveTrue(
-                activity.getCreatorUserId(), userId)) {
-            throw new BusinessException("璇ユ椿鍔ㄥ彂璧疯€呮殏涓嶆帴鍙椾綘鐨勬姤鍚嶃€?");
-        }
-        if (activity.getStartAt() == null || !activity.getStartAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("活动已经开始，无法报名。");
+        if (activity.getEndAt() != null && !activity.getEndAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("Activity has ended.");
         }
 
         Optional<ActivityRegistration> existing = activityRegistrationRepository.findByActivityIdAndUserId(id, userId);
@@ -1010,6 +327,10 @@ public class ActivityServiceImpl implements ActivityService {
             if (CONFLICT_STATUSES.contains(registration.getStatus())) {
                 return toRegistrationVO(registration);
             }
+        }
+
+        if (isFull(activity)) {
+            throw new BusinessException("人员已满");
         }
 
         if (activityRegistrationRepository.existsTimeConflict(
@@ -1027,14 +348,7 @@ public class ActivityServiceImpl implements ActivityService {
             registration.setNoticeCode(ActivityRegistration.NOTICE_APPLICATION_SUBMITTED);
             registration.setReviewedAt(null);
             registration.setReviewedBy(null);
-            registration.setApprovedAt(null);
             registration.setJoinedGroupAt(null);
-            registration.setApplicationText(applicationText);
-            registration.setCancellationReasonType(null);
-            registration.setCancellationReasonText(null);
-            registration.setReviewReasonType(null);
-            registration.setReviewReasonText(null);
-            registration.setCancelledAt(null);
             registration = activityRegistrationRepository.save(registration);
             notifyRegistrationSubmitted(activity, registration, userId);
             return toRegistrationVO(registration);
@@ -1045,7 +359,6 @@ public class ActivityServiceImpl implements ActivityService {
                 .activityId(activity.getId())
                 .status(ActivityRegistration.STATUS_PENDING)
                 .noticeCode(ActivityRegistration.NOTICE_APPLICATION_SUBMITTED)
-                .applicationText(applicationText)
                 .build();
 
         registration = activityRegistrationRepository.save(registration);
@@ -1057,13 +370,6 @@ public class ActivityServiceImpl implements ActivityService {
     @Transactional
     public ActivityRegistrationVO joinGroup(Long id, LoginUser loginUser) {
         Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-
-        if (!canOpenActivityQr(activity, LocalDateTime.now())) {
-            throw new BusinessException("Activity group QR is not available.");
-        }
-
         ActivityRegistration registration = activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
                 .orElseThrow(() -> new BusinessException("Registration not found."));
 
@@ -1084,67 +390,6 @@ public class ActivityServiceImpl implements ActivityService {
 
     @Override
     @Transactional
-    public ActivityRegistrationVO cancelRegistration(
-            Long id,
-            ActivityCancelRegistrationRequest request,
-            LoginUser loginUser
-    ) {
-        Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        ActivityRegistration registration =
-                activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
-                        .orElseThrow(() -> new BusinessException("未找到该活动的报名记录。"));
-
-        boolean releasedCapacity = CAPACITY_STATUSES.contains(registration.getStatus());
-        if (!releasedCapacity && !ActivityRegistration.STATUS_PENDING.equals(registration.getStatus())) {
-            throw new BusinessException("当前报名状态不能取消。");
-        }
-        if (!LocalDateTime.now().isBefore(activity.getStartAt().minusHours(CANCEL_REGISTRATION_MIN_LEAD_HOURS))) {
-            throw new BusinessException("仅可在活动开始前至少3小时取消报名。");
-        }
-
-        String reasonType = request.getReasonType().trim();
-        String reasonLabel = CANCELLATION_REASON_LABELS.get(reasonType);
-        if (reasonLabel == null) {
-            throw new BusinessException("请选择有效的取消原因。");
-        }
-        String reasonText = trimToNull(request.getReasonText());
-        if ("other".equals(reasonType) && reasonText == null) {
-            throw new BusinessException("请填写其他取消原因。");
-        }
-        if (reasonText != null && reasonText.length() > 100) {
-            throw new BusinessException("取消原因最多100字。");
-        }
-
-        registration.setStatus(ActivityRegistration.STATUS_CANCELLED);
-        registration.setNoticeCode(ActivityRegistration.NOTICE_CANCELLED);
-        registration.setCancellationReasonType(reasonType);
-        registration.setCancellationReasonText(reasonText);
-        registration.setCancelledAt(LocalDateTime.now());
-        ActivityRegistration saved = activityRegistrationRepository.save(registration);
-
-        User participant = userRepository.findById(userId).orElse(null);
-        String participantName = resolveAuthorName(participant);
-        String participantDisplayId = participant == null ? String.valueOf(userId) : participant.getDisplayId();
-        String reason = reasonLabel + (reasonText == null ? "" : "：" + reasonText);
-        notificationService.createNotification(
-                activity.getCreatorUserId(),
-                Notification.TYPE_REGISTRATION_CANCELLED_CREATOR,
-                "参与者取消报名",
-                participantName + "（ID " + participantDisplayId + "）已取消「"
-                        + activity.getTitle() + "」的报名。原因：" + reason,
-                Notification.RELATED_ACTIVITY,
-                activity.getId()
-        );
-        if (releasedCapacity) {
-            notifyEarliestPendingApplicant(activity);
-        }
-        return toRegistrationVO(saved);
-    }
-
-    @Override
-    @Transactional
     public ActivityRegistrationVO approveRegistration(
             Long registrationId,
             ActivityRegistrationReviewRequest request,
@@ -1154,8 +399,7 @@ public class ActivityServiceImpl implements ActivityService {
                 registrationId,
                 loginUser,
                 ActivityRegistration.STATUS_APPROVED,
-                ActivityRegistration.NOTICE_APPROVED,
-                request
+                ActivityRegistration.NOTICE_APPROVED
         );
     }
 
@@ -1170,9 +414,128 @@ public class ActivityServiceImpl implements ActivityService {
                 registrationId,
                 loginUser,
                 ActivityRegistration.STATUS_REJECTED,
-                ActivityRegistration.NOTICE_REJECTED,
-                request
+                ActivityRegistration.NOTICE_REJECTED
         );
+    }
+
+    @Override
+    @Transactional
+    public ActivityFavoriteVO updateFavorite(Long id, ActivityFavoriteRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        Activity activity = activityRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+
+        boolean favorited = request != null && Boolean.TRUE.equals(request.getFavorited());
+        Optional<ActivityFavorite> existing =
+                activityFavoriteRepository.findByUserIdAndActivityId(userId, id);
+        if (favorited && existing.isEmpty()) {
+            activityFavoriteRepository.save(ActivityFavorite.builder()
+                    .userId(userId)
+                    .activityId(id)
+                    .build());
+        } else if (!favorited && existing.isPresent()) {
+            activityFavoriteRepository.delete(existing.get());
+        }
+
+        int favoriteCount = activityFavoriteRepository.findByActivityId(id).size();
+        activity.setFavoriteCount(favoriteCount);
+        activityRepository.save(activity);
+        return ActivityFavoriteVO.builder()
+                .id(activity.getId())
+                .favorited(favorited)
+                .favoriteCount(favoriteCount)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActivityPageVO listMyCreatedActivities(ActivityQueryRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        int page = normalizePage(request == null ? null : request.getPage());
+        int pageSize = normalizePageSize(request == null ? null : request.getPageSize());
+        Page<Activity> result = activityRepository.findByCreatorUserIdAndStatusAndEndAtAfter(
+                userId,
+                STATUS_PUBLISHED,
+                LocalDateTime.now(),
+                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.ASC, "startAt"))
+        );
+        return toPageVO(result, page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActivityPageVO listFavoriteActivities(ActivityQueryRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        int page = normalizePage(request == null ? null : request.getPage());
+        int pageSize = normalizePageSize(request == null ? null : request.getPageSize());
+        Page<Activity> result = activityRepository.findActiveFavorites(
+                userId,
+                STATUS_PUBLISHED,
+                LocalDateTime.now(),
+                PageRequest.of(page - 1, pageSize)
+        );
+        return toPageVO(result, page, pageSize);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActivityPageVO listHistoryActivities(ActivityQueryRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
+        List<Activity> activities = activityRepository.findRelatedEndedActivities(
+                userId,
+                STATUS_PUBLISHED,
+                LocalDateTime.now(),
+                CAPACITY_STATUSES
+        );
+        return ActivityPageVO.builder()
+                .list(activities.stream().map(this::toPostVO).toList())
+                .page(1)
+                .pageSize(activities.size())
+                .hasMore(false)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingReviewActivityVO> listPendingReviewActivities(LoginUser loginUser) {
+        return List.of();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingReviewVO> listActivityReviewRegistrations(Long activityId, String status, LoginUser loginUser) {
+        return listPendingReviews(loginUser).stream()
+                .filter(item -> activityId == null || activityId.equals(item.getActivityId()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingReviewVO> listOrganizerBlacklist(Long activityId, LoginUser loginUser) {
+        return List.of();
+    }
+
+    @Override
+    @Transactional
+    public ActivityDetailVO updateActivity(Long id, ActivityUpdateRequest request, LoginUser loginUser) {
+        throw new BusinessException("Activity update is not available in this build.");
+    }
+
+    @Override
+    @Transactional
+    public ActivityDetailVO updateActivityQr(Long id, ActivityQrUpdateRequest request, LoginUser loginUser) {
+        throw new BusinessException("Activity QR update is not available in this build.");
+    }
+
+    @Override
+    @Transactional
+    public ActivityDetailVO cancelActivity(Long id, ActivityCancelRequest request, LoginUser loginUser) {
+        throw new BusinessException("Activity cancellation is not available in this build.");
+    }
+
+    @Override
+    public void remindCreatorToUpdateQr(Long id, LoginUser loginUser) {
+        throw new BusinessException("QR reminder is not available in this build.");
     }
 
     @Override
@@ -1186,155 +549,65 @@ public class ActivityServiceImpl implements ActivityService {
                 registrationId,
                 loginUser,
                 ActivityRegistration.STATUS_BLACKLISTED,
-                ActivityRegistration.NOTICE_BLACKLISTED,
-                request
+                ActivityRegistration.NOTICE_REJECTED
         );
     }
 
     @Override
-    @Transactional
     public void unblockApplicant(Long blacklistId, LoginUser loginUser) {
-        Long organizerUserId = requireUserId(loginUser);
-        ActivityOrganizerBlacklist blacklist = activityOrganizerBlacklistRepository.findById(blacklistId)
-                .orElseThrow(() -> new BusinessException("Blacklist record not found."));
-        if (!organizerUserId.equals(blacklist.getOrganizerUserId())) {
-            throw new BusinessException("Only activity creator can update this blacklist.");
-        }
-        if (!Boolean.TRUE.equals(blacklist.getActive())) {
-            return;
-        }
-        blacklist.setActive(false);
-        blacklist.setUnblockedAt(LocalDateTime.now());
-        activityOrganizerBlacklistRepository.save(blacklist);
+        throw new BusinessException("Blacklist unblock is not available in this build.");
     }
 
     @Override
     @Transactional
-    public ActivityFavoriteVO updateFavorite(
+    public ActivityRegistrationVO cancelRegistration(
             Long id,
-            ActivityFavoriteRequest request,
+            ActivityCancelRegistrationRequest request,
             LoginUser loginUser
     ) {
         Long userId = requireUserId(loginUser);
-        Activity activity = activityRepository.findLockedById(id)
-                .orElseThrow(() -> new BusinessException("Activity not found."));
-        boolean favorited = request != null && Boolean.TRUE.equals(request.getFavorited());
-        Optional<ActivityFavorite> existing = activityFavoriteRepository.findByUserIdAndActivityId(userId, id);
-        int favoriteCount = activity.getFavoriteCount() == null ? 0 : activity.getFavoriteCount();
-
-        if (favorited && existing.isEmpty()) {
-            activityFavoriteRepository.save(ActivityFavorite.builder()
-                    .userId(userId)
-                    .activityId(id)
-                    .build());
-            favoriteCount += 1;
-        } else if (!favorited && existing.isPresent()) {
-            activityFavoriteRepository.delete(existing.get());
-            favoriteCount = Math.max(0, favoriteCount - 1);
-        }
-
-        activity.setFavoriteCount(favoriteCount);
-        activityRepository.save(activity);
-
-        return ActivityFavoriteVO.builder()
-                .id(id)
-                .favorited(favorited)
-                .favoriteCount(favoriteCount)
-                .build();
+        ActivityRegistration registration = activityRegistrationRepository.findByActivityIdAndUserId(id, userId)
+                .orElseThrow(() -> new BusinessException("Registration not found."));
+        registration.setStatus(ActivityRegistration.STATUS_CANCELLED);
+        registration.setNoticeCode(ActivityRegistration.NOTICE_CANCELLED);
+        registration.setCancelledAt(LocalDateTime.now());
+        return toRegistrationVO(activityRegistrationRepository.save(registration));
     }
 
     @Override
     @Transactional
-    public ActivityReportVO reportActivity(
-            Long id,
-            ActivityReportRequest request,
-            LoginUser loginUser
-    ) {
-        Long reporterUserId = requireUserId(loginUser);
+    public ActivityReportVO reportActivity(Long id, ActivityReportRequest request, LoginUser loginUser) {
+        Long userId = requireUserId(loginUser);
         Activity activity = activityRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("Activity not found."));
-        Long reportedUserId = activity.getCreatorUserId();
-        if (reportedUserId == null) {
-            throw new BusinessException("Activity creator not found.");
-        }
-        if (reporterUserId.equals(reportedUserId)) {
-            throw new BusinessException("You cannot report your own activity.");
-        }
-        if (activityReportRepository.existsByReporterUserIdAndActivityId(reporterUserId, id)) {
+        if (activityReportRepository.existsByReporterUserIdAndActivityId(userId, id)) {
             throw new BusinessException("You have already reported this activity.");
         }
-
-        String reason = request == null ? "" : request.getReason();
-        reason = reason == null ? "" : reason.trim();
-        if (!StringUtils.hasText(reason)) {
-            throw new BusinessException("Please provide a report reason.");
-        }
-        if (reason.length() > 300) {
-            throw new BusinessException("Report reason can be at most 300 characters.");
-        }
-
         ActivityReport report = activityReportRepository.save(ActivityReport.builder()
-                .reporterUserId(reporterUserId)
+                .reporterUserId(userId)
                 .activityId(id)
-                .reportedUserId(reportedUserId)
-                .reason(reason)
-                .status("PENDING")
+                .reportedUserId(activity.getCreatorUserId())
+                .reason(request == null || !StringUtils.hasText(request.getReason()) ? "No reason" : request.getReason())
                 .build());
+        return ActivityReportVO.builder().id(report.getId()).status(report.getStatus()).build();
+    }
 
-        notificationService.createNotification(
-                reporterUserId,
-                Notification.TYPE_REPORT_RECEIVED,
-                "举报已提交",
-                "我们已收到你对「" + activity.getTitle() + "」的举报，管理员处理后会通知你结果。",
-                Notification.RELATED_ACTIVITY,
-                activity.getId()
-        );
+    @Override
+    public void recordEvents(ActivityEventRequest request, LoginUser loginUser) {
+        // Analytics recording is intentionally a no-op in this build path.
+    }
 
-        return ActivityReportVO.builder()
-                .id(report.getId())
-                .status(report.getStatus())
+    private ActivityPageVO toPageVO(Page<Activity> result, int page, int pageSize) {
+        return ActivityPageVO.builder()
+                .list(result.getContent().stream().map(this::toPostVO).toList())
+                .page(page)
+                .pageSize(pageSize)
+                .hasMore(result.hasNext())
                 .build();
     }
 
-    private List<ActivityPostVO> toPostVOs(List<Activity> activities, Long userId) {
-        if (activities == null || activities.isEmpty()) {
-            return List.of();
-        }
-        List<Long> activityIds = activities.stream().map(Activity::getId).toList();
-        Set<Long> favoriteIds = activityFavoriteRepository.findActivityIdsByUserIdAndActivityIdIn(
-                userId,
-                activityIds
-        );
-        Map<Long, Long> capacityCounts = activityRegistrationRepository
-                .findByActivityIdInAndStatusIn(activityIds, CAPACITY_STATUSES)
-                .stream()
-                .collect(Collectors.groupingBy(ActivityRegistration::getActivityId, Collectors.counting()));
-        Map<Long, String> registrationStatuses = activityRegistrationRepository
-                .findByUserIdAndActivityIdIn(userId, activityIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        ActivityRegistration::getActivityId,
-                        ActivityRegistration::getStatus,
-                        (first, ignored) -> first
-                ));
-        return activities.stream()
-                .map(activity -> {
-                    ActivityPostVO post = toPostVO(
-                            activity,
-                            favoriteIds.contains(activity.getId()),
-                            capacityCounts.getOrDefault(activity.getId(), 0L).intValue()
-                    );
-                    post.setRegistrationStatus(registrationStatuses.get(activity.getId()));
-                    return post;
-                })
-                .toList();
-    }
-
-    private ActivityPostVO toPostVO(Activity activity, boolean favorited) {
-        return toPostVO(activity, favorited, capacityCount(activity.getId()));
-    }
-
-    private ActivityPostVO toPostVO(Activity activity, boolean favorited, int joinedCount) {
+    private ActivityPostVO toPostVO(Activity activity) {
+        int joinedCount = capacityCount(activity.getId());
         int totalCount = activity.getRecruitCount() == null ? 0 : activity.getRecruitCount();
         return ActivityPostVO.builder()
                 .id(activity.getId())
@@ -1343,50 +616,24 @@ public class ActivityServiceImpl implements ActivityService {
                 .coverUrl(activity.getCoverUrl())
                 .avatarUrl(activity.getAvatarUrl())
                 .favoriteCount(activity.getFavoriteCount())
-                .favorited(favorited)
-                .progressPct(calculateCapacityProgressPct(joinedCount, totalCount))
+                .favorited(false)
+                .progressPct(calculateProgressPct(activity))
                 .joinedCount(joinedCount)
                 .totalCount(totalCount)
+                .tagIds(parseLongList(activity.getTagIdsJson()))
+                .locationText(activity.getLocationText())
                 .startAt(toEpochMillis(activity.getStartAt()))
                 .endAt(toEpochMillis(activity.getEndAt()))
                 .progressGif(activity.getProgressGif())
                 .build();
     }
 
-    private ActivityDetailVO toDetailVO(
-            Activity activity,
-            ActivityRegistration registration,
-            boolean isCreator,
-            boolean favorited,
-            boolean canExposeQr
-    ) {
-        int joinedCount = activity.getArchivedParticipantCount() == null
-                ? capacityCount(activity.getId())
-                : activity.getArchivedParticipantCount().intValue();
+    private ActivityDetailVO toDetailVO(Activity activity, ActivityRegistration registration, boolean isCreator) {
+        int joinedCount = capacityCount(activity.getId());
         int totalCount = activity.getRecruitCount() == null ? 0 : activity.getRecruitCount();
         List<String> images = parseStringList(activity.getImageUrlsJson());
         if (images.isEmpty() && StringUtils.hasText(activity.getCoverUrl())) {
             images = List.of(activity.getCoverUrl());
-        }
-        List<String> tags = parseStringList(activity.getTagsJson());
-        Double organizerRating = activity.getCreatorUserId() == null
-                ? null
-                : activityReviewRepository.findRecentAverageActivityRatingByCreatorUserId(
-                        activity.getCreatorUserId(),
-                        ActivityReview.TARGET_ACTIVITY,
-                        LocalDateTime.now().minusDays(30)
-                );
-        User organizer = activity.getCreatorUserId() == null
-                ? null
-                : userRepository.findById(activity.getCreatorUserId()).orElse(null);
-        String authorMotto = organizer != null && StringUtils.hasText(organizer.getMotto())
-                ? organizer.getMotto().trim()
-                : DEFAULT_PROFILE_MOTTO;
-        List<String> authorTags = organizer == null
-                ? List.of(DEFAULT_PROFILE_TAG)
-                : parseStringList(organizer.getTagsJson());
-        if (authorTags.isEmpty()) {
-            authorTags = List.of(DEFAULT_PROFILE_TAG);
         }
 
         return ActivityDetailVO.builder()
@@ -1394,145 +641,32 @@ public class ActivityServiceImpl implements ActivityService {
                 .title(activity.getTitle())
                 .content(activity.getContent())
                 .authorName(activity.getAuthorName())
-                .authorUserId(activity.getCreatorUserId())
-                .authorAvatarUrl(activity.getAvatarUrl())
-                .organizerRating(organizerRating)
-                .authorMotto(authorMotto)
-                .authorTags(authorTags)
                 .coverUrl(activity.getCoverUrl())
                 .imageUrls(images)
-                .tags(tags)
-                .tagIds(parseLongList(activity.getTagIdsJson()))
                 .startAt(toEpochMillis(activity.getStartAt()))
                 .endAt(toEpochMillis(activity.getEndAt()))
                 .joinedCount(joinedCount)
                 .totalCount(totalCount)
                 .full(totalCount > 0 && joinedCount >= totalCount)
                 .isCreator(isCreator)
-                .favoriteCount(activity.getFavoriteCount())
-                .favorited(favorited)
                 .locationText(activity.getLocationText())
                 .mapImageUrl(activity.getMapImageUrl())
-                .inviteQrUrl(canExposeQr && STATUS_PUBLISHED.equals(activity.getStatus()) && canViewInviteQr(isCreator, registration)
-                        ? activity.getInviteQrUrl() : null)
-                .qrExpiresAt(toEpochMillis(activity.getQrExpiresAt()))
-                .editCount(activity.getEditCount() == null ? 0 : activity.getEditCount())
-                .canEdit(isCreator && canEdit(activity))
-                .editBlockedReason(isCreator ? resolveEditBlockedReason(activity) : "not_creator")
+                .inviteQrUrl(activity.getInviteQrUrl())
                 .registrationStatus(registration == null ? null : registration.getStatus())
                 .noticeCode(registration == null ? null : registration.getNoticeCode())
                 .build();
-    }
-
-    private void requireCreator(Activity activity, Long userId) {
-        if (activity.getCreatorUserId() == null || !activity.getCreatorUserId().equals(userId)) {
-            throw new BusinessException("只有活动发起者可以执行此操作。");
-        }
-    }
-
-    private boolean canEdit(Activity activity) {
-        return resolveEditBlockedReason(activity) == null;
-    }
-
-    private String resolveEditBlockedReason(Activity activity) {
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
-            return "not_available";
-        }
-        if (activity.getEndAt() != null && LocalDateTime.now().isAfter(activity.getEndAt())) {
-            return "ended";
-        }
-        return null;
-    }
-
-    private boolean canViewInviteQr(boolean isCreator, ActivityRegistration registration) {
-        return isCreator || (registration != null && CAPACITY_STATUSES.contains(registration.getStatus()));
-    }
-
-    private boolean textChanged(String before, String after) {
-        return !Objects.equals(trimToNull(before), trimToNull(after));
-    }
-
-    private boolean isAppendOnly(String before, String after) {
-        String original = before == null ? "" : before.trim();
-        String updated = after == null ? "" : after.trim();
-        return updated.equals(original) || updated.startsWith(original);
-    }
-
-    private boolean canOpenActivityQr(Activity activity, LocalDateTime now) {
-        return STATUS_PUBLISHED.equals(activity.getStatus())
-                && activity.getEndAt() != null
-                && activity.getEndAt().isAfter(now)
-                && StringUtils.hasText(activity.getInviteQrUrl())
-                && activity.getQrExpiresAt() != null
-                && activity.getQrExpiresAt().isAfter(now);
-    }
-
-    private void notifyRegisteredParticipants(
-            Activity activity,
-            String type,
-            String title,
-            String content
-    ) {
-        activityRegistrationRepository.findByActivityIdAndStatusIn(activity.getId(), CONFLICT_STATUSES)
-                .stream()
-                .map(ActivityRegistration::getUserId)
-                .distinct()
-                .forEach(userId -> notificationService.createNotification(
-                        userId,
-                        type,
-                        title,
-                        content,
-                        Notification.RELATED_ACTIVITY,
-                        activity.getId()
-                ));
-    }
-
-    private String normalizeReviewReasonType(ActivityRegistrationReviewRequest request, String targetStatus) {
-        String reasonType = trimToNull(request == null ? null : request.getReasonType());
-        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus)) {
-            return reasonType;
-        }
-        if (reasonType == null) {
-            throw new BusinessException("Reason is required.");
-        }
-        return reasonType;
-    }
-
-    private String normalizeReviewReasonText(ActivityRegistrationReviewRequest request) {
-        String reasonText = trimToNull(request == null ? null : request.getReasonText());
-        if (reasonText != null && reasonText.length() > 200) {
-            throw new BusinessException("Reason cannot exceed 200 characters.");
-        }
-        return reasonText;
-    }
-
-    private void upsertBlacklist(Long organizerUserId, Long blockedUserId, String reasonType, String reasonText) {
-        ActivityOrganizerBlacklist blacklist = activityOrganizerBlacklistRepository
-                .findByOrganizerUserIdAndBlockedUserId(organizerUserId, blockedUserId)
-                .orElseGet(() -> ActivityOrganizerBlacklist.builder()
-                        .organizerUserId(organizerUserId)
-                        .blockedUserId(blockedUserId)
-                        .build());
-        blacklist.setReasonType(reasonType);
-        blacklist.setReasonText(reasonText);
-        blacklist.setActive(true);
-        blacklist.setUnblockedAt(null);
-        activityOrganizerBlacklistRepository.save(blacklist);
     }
 
     private ActivityRegistrationVO reviewRegistration(
             Long registrationId,
             LoginUser loginUser,
             String targetStatus,
-            int noticeCode,
-            ActivityRegistrationReviewRequest request
+            int noticeCode
     ) {
         Long reviewerId = requireUserId(loginUser);
-        String reasonType = normalizeReviewReasonType(request, targetStatus);
-        String reasonText = normalizeReviewReasonText(request);
         ActivityRegistration registration = activityRegistrationRepository.findById(registrationId)
                 .orElseThrow(() -> new BusinessException("Registration not found."));
-        Activity activity = activityRepository.findLockedById(registration.getActivityId())
+        Activity activity = activityRepository.findById(registration.getActivityId())
                 .orElseThrow(() -> new BusinessException("Activity not found."));
 
         if (!reviewerId.equals(activity.getCreatorUserId())) {
@@ -1541,89 +675,15 @@ public class ActivityServiceImpl implements ActivityService {
         if (!ActivityRegistration.STATUS_PENDING.equals(registration.getStatus())) {
             throw new BusinessException("Registration has already been reviewed.");
         }
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())) {
-            throw new BusinessException("活动当前不可审核。");
-        }
-        if (activity.getStartAt() == null || !activity.getStartAt().isAfter(LocalDateTime.now())) {
-            throw new BusinessException("活动已经开始，不能继续审核报名。");
-        }
-        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus) && isFull(activity)) {
-            registration.setNoticeCode(ActivityRegistration.NOTICE_WAITING_FULL);
-            registration = activityRegistrationRepository.save(registration);
-            notificationService.createNotification(
-                    registration.getUserId(),
-                    Notification.TYPE_REGISTRATION_WAITING_FULL,
-                    "活动名额已满",
-                    "「" + activity.getTitle() + "」当前名额已满，你的报名仍在等待审核；有名额释放时会优先通知最早报名的人。",
-                    Notification.RELATED_ACTIVITY,
-                    activity.getId()
-            );
-            return toRegistrationVO(registration);
-        }
 
         registration.setStatus(targetStatus);
         registration.setNoticeCode(noticeCode);
         registration.setReviewedBy(reviewerId);
         registration.setReviewedAt(LocalDateTime.now());
-        registration.setReviewReasonType(reasonType);
-        registration.setReviewReasonText(reasonText);
-        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus)) {
-            registration.setApprovedAt(LocalDateTime.now());
-        } else if (ActivityRegistration.STATUS_BLACKLISTED.equals(targetStatus)) {
-            upsertBlacklist(activity.getCreatorUserId(), registration.getUserId(), reasonType, reasonText);
-        }
 
         registration = activityRegistrationRepository.save(registration);
         notifyRegistrationReviewed(activity, registration, targetStatus);
-        if (ActivityRegistration.STATUS_APPROVED.equals(targetStatus)
-                && activity.getRecruitCount() != null
-                && capacityCount(activity.getId()) >= activity.getRecruitCount()) {
-            createNotificationOnce(
-                    activity.getCreatorUserId(),
-                    Notification.TYPE_ACTIVITY_FULL,
-                    "活动已满员",
-                    "你发起的「" + activity.getTitle() + "」已达到招募人数上限。",
-                    activity.getId()
-            );
-        }
         return toRegistrationVO(registration);
-    }
-
-    private void notifyEarliestPendingApplicant(Activity activity) {
-        if (!STATUS_PUBLISHED.equals(activity.getStatus())
-                || activity.getStartAt() == null
-                || !activity.getStartAt().isAfter(LocalDateTime.now())
-                || isFull(activity)) {
-            return;
-        }
-        activityRegistrationRepository
-                .findFirstByActivityIdAndStatusOrderByCreatedAtAsc(
-                        activity.getId(),
-                        ActivityRegistration.STATUS_PENDING
-                )
-                .ifPresent(registration -> notificationService.createNotification(
-                        registration.getUserId(),
-                        Notification.TYPE_ACTIVITY_SLOT_AVAILABLE,
-                        "活动有名额释放",
-                        "「" + activity.getTitle() + "」刚刚释放了一个名额。你是当前最早报名的待审核参与者，请继续等待发起者审核。",
-                        Notification.RELATED_ACTIVITY,
-                        activity.getId()
-                ));
-    }
-
-    private void createNotificationOnce(
-            Long userId,
-            String type,
-            String title,
-            String content,
-            Long activityId
-    ) {
-        if (notificationRepository.existsByUserIdAndTypeAndRelatedTypeAndRelatedId(
-                userId, type, Notification.RELATED_ACTIVITY, activityId)) {
-            return;
-        }
-        notificationService.createNotification(
-                userId, type, title, content, Notification.RELATED_ACTIVITY, activityId);
     }
 
     private void notifyRegistrationSubmitted(Activity activity, ActivityRegistration registration, Long applicantUserId) {
@@ -1634,18 +694,17 @@ public class ActivityServiceImpl implements ActivityService {
         notificationService.createNotification(
                 activity.getCreatorUserId(),
                 Notification.TYPE_REGISTRATION_SUBMITTED_CREATOR,
-                "有人报名了你的活动",
-                applicantName + " 想加入「" + activityTitle + "」，去审核一下吧。",
-                Notification.RELATED_PENDING_REVIEW,
-                registration.getId()
+                "New registration",
+                applicantName + " wants to join " + activityTitle + ". Please review it.",
+                Notification.RELATED_ACTIVITY,
+                activity.getId()
         );
 
         notificationService.createNotification(
                 applicantUserId,
                 Notification.TYPE_REGISTRATION_SUBMITTED_USER,
-                "报名已提交",
-                "你已提交「" + activityTitle
-                        + "」报名申请，等待发起者审核。审核通过后，可在活动开始前至少3小时取消报名。",
+                "Registration submitted",
+                "You have registered for " + activityTitle + ". Please wait for creator review.",
                 Notification.RELATED_ACTIVITY,
                 activity.getId()
         );
@@ -1659,8 +718,7 @@ public class ActivityServiceImpl implements ActivityService {
                 approved ? Notification.TYPE_REGISTRATION_APPROVED : Notification.TYPE_REGISTRATION_REJECTED,
                 approved ? "报名已通过" : "报名未通过",
                 approved
-                        ? "你已通过「" + activity.getTitle()
-                                + "」报名，可前往主页—活动中查看。如无法参加，请在活动开始前至少3小时取消报名。"
+                        ? "你已通过「" + activity.getTitle() + "」报名，可以加入群聊了。"
                         : "你报名的「" + activity.getTitle() + "」未通过审核。",
                 Notification.RELATED_ACTIVITY,
                 activity.getId()
@@ -1672,22 +730,8 @@ public class ActivityServiceImpl implements ActivityService {
                 .id(registration.getId())
                 .activityId(registration.getActivityId())
                 .status(registration.getStatus())
-                .applicationText(registration.getApplicationText())
                 .noticeCode(registration.getNoticeCode())
-                .reviewReasonType(registration.getReviewReasonType())
-                .reviewReasonText(registration.getReviewReasonText())
                 .build();
-    }
-
-    private String trimApplicationText(String value) {
-        String trimmed = trimToNull(value);
-        if (trimmed == null) {
-            return null;
-        }
-        if (trimmed.length() > 100) {
-            throw new BusinessException("报名申请不能超过100字");
-        }
-        return trimmed;
     }
 
     private boolean isFull(Activity activity) {
@@ -1722,13 +766,6 @@ public class ActivityServiceImpl implements ActivityService {
         }
 
         return (int) Math.round((end - now) * 100.0 / (end - start));
-    }
-
-    private Integer calculateCapacityProgressPct(int joinedCount, int totalCount) {
-        if (totalCount <= 0) {
-            return 0;
-        }
-        return Math.min(100, Math.max(0, (int) Math.round(joinedCount * 100.0 / totalCount)));
     }
 
     private Long toEpochMillis(LocalDateTime time) {
@@ -1872,17 +909,6 @@ public class ActivityServiceImpl implements ActivityService {
                     .filter(StringUtils::hasText)
                     .toList();
         } catch (JsonProcessingException ex) {
-            return List.of();
-        }
-    }
-
-    private List<Long> parseLongList(String json) {
-        if (!StringUtils.hasText(json)) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<Long>>() {});
-        } catch (JsonProcessingException ignored) {
             return List.of();
         }
     }

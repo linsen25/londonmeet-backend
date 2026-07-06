@@ -35,13 +35,5 @@ public class PendingReviewVO {
 
     private Long blacklistedAt;
 
-    private Double punctualRating;
-
-    private Double communicationRating;
-
-    private Double friendlyRating;
-
-    private Integer reviewCount;
-
     private Long appliedAt;
 }

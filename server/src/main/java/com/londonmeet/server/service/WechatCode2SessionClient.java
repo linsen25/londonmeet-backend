@@ -9,12 +9,14 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -26,6 +28,8 @@ public class WechatCode2SessionClient {
 
     private static final Logger log = LoggerFactory.getLogger(WechatCode2SessionClient.class);
     private static final String CODE2_SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session";
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
 
     private final WechatProperties wechatProperties;
     private final ObjectMapper objectMapper;
@@ -48,7 +52,9 @@ public class WechatCode2SessionClient {
 
         String responseBody;
         try {
-            responseBody = RestClient.create()
+            responseBody = RestClient.builder()
+                    .requestFactory(requestFactory())
+                    .build()
                     .get()
                     .uri(uri)
                     .retrieve()
@@ -99,6 +105,13 @@ public class WechatCode2SessionClient {
             return "****";
         }
         return trimmed.substring(0, 4) + "****" + trimmed.substring(trimmed.length() - 4);
+    }
+
+    private SimpleClientHttpRequestFactory requestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        return factory;
     }
 
     @Data

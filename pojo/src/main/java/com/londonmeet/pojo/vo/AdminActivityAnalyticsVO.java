@@ -28,8 +28,6 @@ public class AdminActivityAnalyticsVO {
         private Long joinedGroupCount;
         private Long groupQrUsers;
         private Long cancelledCount;
-        private Long reviewCount;
-        private Double averageRating;
         private Long reportCount;
         private Double exposureToDetailRate;
         private Double detailToApplyRate;
