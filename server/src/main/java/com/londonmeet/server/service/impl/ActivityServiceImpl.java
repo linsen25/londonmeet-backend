@@ -913,6 +913,23 @@ public class ActivityServiceImpl implements ActivityService {
         }
     }
 
+    private List<Long> parseLongList(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            List<Long> values = objectMapper.readValue(
+                    json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, Long.class)
+            );
+            return values.stream()
+                    .filter(value -> value != null && value > 0)
+                    .toList();
+        } catch (JsonProcessingException ex) {
+            return List.of();
+        }
+    }
+
     private String normalizeRange(String range) {
         if (!StringUtils.hasText(range)) {
             return "day";
