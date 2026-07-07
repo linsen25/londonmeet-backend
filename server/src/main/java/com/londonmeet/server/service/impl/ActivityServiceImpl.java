@@ -53,6 +53,7 @@ import java.time.ZoneId;
 import java.time.Instant;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -160,21 +161,31 @@ public class ActivityServiceImpl implements ActivityService {
         };
 
         PageRequest pageRequest = PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Activity> result = tagIds.isEmpty()
-                ? activityRepository.findByStatusAndEndAtAfterAndEndAtBefore(
-                        STATUS_PUBLISHED,
-                        now,
-                        rangeEnd,
-                        pageRequest
-                )
-                : activityRepository.findByStatusAndEndAtAfterAndEndAtBeforeAndAnyTagIn(
-                        STATUS_PUBLISHED,
-                        now,
-                        rangeEnd,
-                        tagIds,
-                        toJson(tagIds),
-                        pageRequest
-                );
+        if (!tagIds.isEmpty()) {
+            List<Activity> filtered = activityRepository.findByStatusAndEndAtAfterAndEndAtBeforeOrderByCreatedAtDesc(
+                            STATUS_PUBLISHED,
+                            now,
+                            rangeEnd
+                    ).stream()
+                    .filter(activity -> matchesAnyTag(activity, tagIds))
+                    .toList();
+            int fromIndex = Math.min((page - 1) * pageSize, filtered.size());
+            int toIndex = Math.min(fromIndex + pageSize, filtered.size());
+
+            return ActivityPageVO.builder()
+                    .list(filtered.subList(fromIndex, toIndex).stream().map(this::toPostVO).toList())
+                    .page(page)
+                    .pageSize(pageSize)
+                    .hasMore(toIndex < filtered.size())
+                    .build();
+        }
+
+        Page<Activity> result = activityRepository.findByStatusAndEndAtAfterAndEndAtBefore(
+                STATUS_PUBLISHED,
+                now,
+                rangeEnd,
+                pageRequest
+        );
 
         List<ActivityPostVO> list = result.getContent().stream()
                 .map(this::toPostVO)
@@ -277,16 +288,7 @@ public class ActivityServiceImpl implements ActivityService {
                 .map(registration -> {
                     Activity activity = activityById.get(registration.getActivityId());
                     User user = userById.get(registration.getUserId());
-
-                    return PendingReviewVO.builder()
-                            .registrationId(registration.getId())
-                            .activityId(registration.getActivityId())
-                            .userId(registration.getUserId())
-                            .activityTitle(activity == null ? "" : activity.getTitle())
-                            .nickname(user == null ? "MeetFun User" : resolveAuthorName(user))
-                            .avatarUrl(user == null ? null : user.getAvatarUrl())
-                            .appliedAt(toEpochMillis(registration.getCreatedAt()))
-                            .build();
+                    return toPendingReviewVO(registration, activity, user);
                 })
                 .toList();
     }
@@ -504,14 +506,77 @@ public class ActivityServiceImpl implements ActivityService {
     @Override
     @Transactional(readOnly = true)
     public List<PendingReviewActivityVO> listPendingReviewActivities(LoginUser loginUser) {
-        return List.of();
+        Long creatorUserId = requireUserId(loginUser);
+        List<Activity> activities = activityRepository.findCreatedOngoingActivitiesForReview(
+                creatorUserId,
+                STATUS_PUBLISHED,
+                LocalDateTime.now(),
+                PageRequest.of(0, 200, Sort.by(Sort.Direction.ASC, "startAt"))
+        ).getContent();
+        if (activities.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> activityIds = activities.stream().map(Activity::getId).toList();
+        Map<Long, List<ActivityRegistration>> registrationsByActivityId =
+                activityRegistrationRepository.findByActivityIdIn(activityIds).stream()
+                        .collect(Collectors.groupingBy(ActivityRegistration::getActivityId));
+
+        return activities.stream()
+                .map(activity -> {
+                    List<ActivityRegistration> registrations =
+                            registrationsByActivityId.getOrDefault(activity.getId(), List.of());
+                    int pendingCount = countRegistrations(registrations, List.of(ActivityRegistration.STATUS_PENDING));
+                    int approvedCount = countRegistrations(registrations, CAPACITY_STATUSES);
+                    int rejectedCount = countRegistrations(registrations, List.of(ActivityRegistration.STATUS_REJECTED));
+                    Long latestAppliedAt = registrations.stream()
+                            .map(ActivityRegistration::getCreatedAt)
+                            .filter(time -> time != null)
+                            .max(Comparator.naturalOrder())
+                            .map(this::toEpochMillis)
+                            .orElse(null);
+
+                    return PendingReviewActivityVO.builder()
+                            .activityId(activity.getId())
+                            .activityTitle(activity.getTitle())
+                            .startAt(toEpochMillis(activity.getStartAt()))
+                            .endAt(toEpochMillis(activity.getEndAt()))
+                            .locationText(activity.getLocationText())
+                            .totalRegistrationCount(registrations.size())
+                            .pendingCount(pendingCount)
+                            .approvedCount(approvedCount)
+                            .rejectedCount(rejectedCount)
+                            .hasUnread(pendingCount > 0)
+                            .latestAppliedAt(latestAppliedAt)
+                            .build();
+                })
+                .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<PendingReviewVO> listActivityReviewRegistrations(Long activityId, String status, LoginUser loginUser) {
-        return listPendingReviews(loginUser).stream()
-                .filter(item -> activityId == null || activityId.equals(item.getActivityId()))
+        Long creatorUserId = requireUserId(loginUser);
+        Activity activity = activityRepository.findById(activityId)
+                .orElseThrow(() -> new BusinessException("Activity not found."));
+        if (!creatorUserId.equals(activity.getCreatorUserId())) {
+            throw new BusinessException("Only activity creator can review registrations.");
+        }
+
+        List<ActivityRegistration> registrations = resolveReviewRegistrations(activityId, status);
+        if (registrations.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> userIds = registrations.stream()
+                .map(ActivityRegistration::getUserId)
+                .distinct()
+                .toList();
+        Map<Long, User> userById = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+
+        return registrations.stream()
+                .map(registration -> toPendingReviewVO(registration, activity, userById.get(registration.getUserId())))
                 .toList();
     }
 
@@ -761,6 +826,48 @@ public class ActivityServiceImpl implements ActivityService {
                 .build();
     }
 
+    private PendingReviewVO toPendingReviewVO(ActivityRegistration registration, Activity activity, User user) {
+        return PendingReviewVO.builder()
+                .registrationId(registration.getId())
+                .activityId(registration.getActivityId())
+                .userId(registration.getUserId())
+                .displayId(user == null ? null : user.getDisplayId())
+                .activityTitle(activity == null ? "" : activity.getTitle())
+                .nickname(user == null ? "MeetFun User" : resolveAuthorName(user))
+                .avatarUrl(user == null ? null : user.getAvatarUrl())
+                .applicationText(registration.getApplicationText())
+                .status(registration.getStatus())
+                .reviewReasonType(registration.getReviewReasonType())
+                .reviewReasonText(registration.getReviewReasonText())
+                .reviewedAt(toEpochMillis(registration.getReviewedAt()))
+                .blacklistId(ActivityRegistration.STATUS_BLACKLISTED.equals(registration.getStatus())
+                        ? registration.getId()
+                        : null)
+                .blacklistedAt(ActivityRegistration.STATUS_BLACKLISTED.equals(registration.getStatus())
+                        ? toEpochMillis(registration.getReviewedAt())
+                        : null)
+                .appliedAt(toEpochMillis(registration.getCreatedAt()))
+                .build();
+    }
+
+    private List<ActivityRegistration> resolveReviewRegistrations(Long activityId, String status) {
+        if (!StringUtils.hasText(status) || "all".equals(status)) {
+            return activityRegistrationRepository.findByActivityIdOrderByCreatedAtAsc(activityId);
+        }
+        if (ActivityRegistration.STATUS_APPROVED.equals(status)) {
+            return activityRegistrationRepository.findByActivityIdAndStatusIn(activityId, CAPACITY_STATUSES).stream()
+                    .sorted(Comparator.comparing(ActivityRegistration::getCreatedAt))
+                    .toList();
+        }
+        return activityRegistrationRepository.findByActivityIdAndStatusOrderByCreatedAtAsc(activityId, status);
+    }
+
+    private int countRegistrations(List<ActivityRegistration> registrations, List<String> statuses) {
+        return (int) registrations.stream()
+                .filter(registration -> statuses.contains(registration.getStatus()))
+                .count();
+    }
+
     private boolean isFull(Activity activity) {
         Integer recruitCount = activity.getRecruitCount();
         return recruitCount != null && recruitCount > 0 && capacityCount(activity.getId()) >= recruitCount;
@@ -869,6 +976,17 @@ public class ActivityServiceImpl implements ActivityService {
         }
 
         return parseStringList(activity.getTagsJson());
+    }
+
+    private boolean matchesAnyTag(Activity activity, List<Long> selectedTagIds) {
+        if (activity == null || selectedTagIds == null || selectedTagIds.isEmpty()) {
+            return false;
+        }
+        List<Long> activityTagIds = parseLongList(activity.getTagIdsJson());
+        if (activityTagIds.isEmpty() && activity.getTagId() != null) {
+            activityTagIds = List.of(activity.getTagId());
+        }
+        return activityTagIds.stream().anyMatch(selectedTagIds::contains);
     }
 
     private List<Long> resolveSearchTagIds(List<String> tagNames) {

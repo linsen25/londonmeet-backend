@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface ActivityRepository extends JpaRepository<Activity, Long> {
@@ -27,53 +28,17 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
             Pageable pageable
     );
 
+    List<Activity> findByStatusAndEndAtAfterAndEndAtBeforeOrderByCreatedAtDesc(
+            String status,
+            LocalDateTime endAtAfter,
+            LocalDateTime endAtBefore
+    );
+
     Page<Activity> findByStatusAndEndAtAfterAndEndAtBeforeAndTagIdIn(
             String status,
             LocalDateTime endAtAfter,
             LocalDateTime endAtBefore,
             Collection<Long> tagIds,
-            Pageable pageable
-    );
-
-    @Query(
-            value = """
-                    SELECT *
-                    FROM activities a
-                    WHERE a.status = :status
-                      AND a.end_at > :endAtAfter
-                      AND a.end_at < :endAtBefore
-                      AND (
-                            a.tag_id IN (:tagIds)
-                            OR (
-                                a.tag_ids_json IS NOT NULL
-                                AND JSON_VALID(a.tag_ids_json)
-                                AND JSON_OVERLAPS(CAST(a.tag_ids_json AS JSON), CAST(:tagIdsJson AS JSON))
-                            )
-                          )
-                    """,
-            countQuery = """
-                    SELECT COUNT(*)
-                    FROM activities a
-                    WHERE a.status = :status
-                      AND a.end_at > :endAtAfter
-                      AND a.end_at < :endAtBefore
-                      AND (
-                            a.tag_id IN (:tagIds)
-                            OR (
-                                a.tag_ids_json IS NOT NULL
-                                AND JSON_VALID(a.tag_ids_json)
-                                AND JSON_OVERLAPS(CAST(a.tag_ids_json AS JSON), CAST(:tagIdsJson AS JSON))
-                            )
-                          )
-                    """,
-            nativeQuery = true
-    )
-    Page<Activity> findByStatusAndEndAtAfterAndEndAtBeforeAndAnyTagIn(
-            @Param("status") String status,
-            @Param("endAtAfter") LocalDateTime endAtAfter,
-            @Param("endAtBefore") LocalDateTime endAtBefore,
-            @Param("tagIds") Collection<Long> tagIds,
-            @Param("tagIdsJson") String tagIdsJson,
             Pageable pageable
     );
 
