@@ -291,6 +291,20 @@ public interface ActivityRepository extends JpaRepository<Activity, Long> {
     );
 
     @Query("""
+            select a
+            from Activity a
+            join ActivityFavorite f on f.activityId = a.id
+            where f.userId = :userId
+              and a.status = :status
+            order by f.createdAt desc
+            """)
+    Page<Activity> findFavorites(
+            @Param("userId") Long userId,
+            @Param("status") String status,
+            Pageable pageable
+    );
+
+    @Query("""
             select distinct a
             from Activity a
             left join ActivityRegistration r on r.activityId = a.id

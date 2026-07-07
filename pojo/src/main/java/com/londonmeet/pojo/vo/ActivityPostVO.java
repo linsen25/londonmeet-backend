@@ -31,6 +31,8 @@ public class ActivityPostVO {
 
     private List<Long> tagIds;
 
+    private List<String> tags;
+
     private String locationText;
 
     private Long startAt;

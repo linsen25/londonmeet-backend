@@ -104,7 +104,7 @@ public class ActivityServiceImpl implements ActivityService {
             throw new BusinessException("At least one activity image is required.");
         }
 
-        List<Long> tagIds = sanitizeTagIds(resolveRequestTagIds(request), 1);
+        List<Long> tagIds = sanitizeTagIds(resolveRequestTagIds(request), 4);
         if (tagIds.isEmpty()) {
             throw new BusinessException("At least one activity tag is required.");
         }
@@ -299,12 +299,14 @@ public class ActivityServiceImpl implements ActivityService {
 
         Optional<ActivityRegistration> registration = Optional.empty();
         boolean isCreator = false;
+        boolean favorited = false;
         if (loginUser != null && loginUser.userId() != null) {
             registration = activityRegistrationRepository.findByActivityIdAndUserId(id, loginUser.userId());
             isCreator = loginUser.userId().equals(activity.getCreatorUserId());
+            favorited = activityFavoriteRepository.findByUserIdAndActivityId(loginUser.userId(), id).isPresent();
         }
 
-        return toDetailVO(activity, registration.orElse(null), isCreator);
+        return toDetailVO(activity, registration.orElse(null), isCreator, favorited);
     }
 
     @Override
@@ -468,13 +470,17 @@ public class ActivityServiceImpl implements ActivityService {
         Long userId = requireUserId(loginUser);
         int page = normalizePage(request == null ? null : request.getPage());
         int pageSize = normalizePageSize(request == null ? null : request.getPageSize());
-        Page<Activity> result = activityRepository.findActiveFavorites(
+        Page<Activity> result = activityRepository.findFavorites(
                 userId,
                 STATUS_PUBLISHED,
-                LocalDateTime.now(),
                 PageRequest.of(page - 1, pageSize)
         );
-        return toPageVO(result, page, pageSize);
+        return ActivityPageVO.builder()
+                .list(result.getContent().stream().map(activity -> toPostVO(activity, true)).toList())
+                .page(page)
+                .pageSize(pageSize)
+                .hasMore(result.hasNext())
+                .build();
     }
 
     @Override
@@ -607,6 +613,10 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     private ActivityPostVO toPostVO(Activity activity) {
+        return toPostVO(activity, false);
+    }
+
+    private ActivityPostVO toPostVO(Activity activity, boolean favorited) {
         int joinedCount = capacityCount(activity.getId());
         int totalCount = activity.getRecruitCount() == null ? 0 : activity.getRecruitCount();
         return ActivityPostVO.builder()
@@ -616,11 +626,12 @@ public class ActivityServiceImpl implements ActivityService {
                 .coverUrl(activity.getCoverUrl())
                 .avatarUrl(activity.getAvatarUrl())
                 .favoriteCount(activity.getFavoriteCount())
-                .favorited(false)
+                .favorited(favorited)
                 .progressPct(calculateProgressPct(activity))
                 .joinedCount(joinedCount)
                 .totalCount(totalCount)
                 .tagIds(parseLongList(activity.getTagIdsJson()))
+                .tags(resolveActivityTagNames(activity))
                 .locationText(activity.getLocationText())
                 .startAt(toEpochMillis(activity.getStartAt()))
                 .endAt(toEpochMillis(activity.getEndAt()))
@@ -628,27 +639,43 @@ public class ActivityServiceImpl implements ActivityService {
                 .build();
     }
 
-    private ActivityDetailVO toDetailVO(Activity activity, ActivityRegistration registration, boolean isCreator) {
+    private ActivityDetailVO toDetailVO(
+            Activity activity,
+            ActivityRegistration registration,
+            boolean isCreator,
+            boolean favorited
+    ) {
         int joinedCount = capacityCount(activity.getId());
         int totalCount = activity.getRecruitCount() == null ? 0 : activity.getRecruitCount();
         List<String> images = parseStringList(activity.getImageUrlsJson());
         if (images.isEmpty() && StringUtils.hasText(activity.getCoverUrl())) {
             images = List.of(activity.getCoverUrl());
         }
+        User author = activity.getCreatorUserId() == null
+                ? null
+                : userRepository.findById(activity.getCreatorUserId()).orElse(null);
 
         return ActivityDetailVO.builder()
                 .id(activity.getId())
                 .title(activity.getTitle())
                 .content(activity.getContent())
-                .authorName(activity.getAuthorName())
+                .authorName(author == null ? activity.getAuthorName() : resolveAuthorName(author))
+                .authorUserId(activity.getCreatorUserId())
+                .authorAvatarUrl(author == null ? activity.getAvatarUrl() : author.getAvatarUrl())
+                .authorMotto(author == null ? null : author.getMotto())
+                .authorTags(author == null ? List.of() : parseStringList(author.getTagsJson()))
                 .coverUrl(activity.getCoverUrl())
                 .imageUrls(images)
+                .tags(resolveActivityTagNames(activity))
+                .tagIds(parseLongList(activity.getTagIdsJson()))
                 .startAt(toEpochMillis(activity.getStartAt()))
                 .endAt(toEpochMillis(activity.getEndAt()))
                 .joinedCount(joinedCount)
                 .totalCount(totalCount)
                 .full(totalCount > 0 && joinedCount >= totalCount)
                 .isCreator(isCreator)
+                .favoriteCount(activity.getFavoriteCount())
+                .favorited(favorited)
                 .locationText(activity.getLocationText())
                 .mapImageUrl(activity.getMapImageUrl())
                 .inviteQrUrl(activity.getInviteQrUrl())
@@ -751,21 +778,11 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     private Integer calculateProgressPct(Activity activity) {
-        long start = toEpochMillis(activity.getStartAt());
-        long end = toEpochMillis(activity.getEndAt());
-        long now = System.currentTimeMillis();
-
-        if (end <= start) {
+        Integer recruitCount = activity.getRecruitCount();
+        if (recruitCount == null || recruitCount <= 0) {
             return 0;
         }
-        if (now <= start) {
-            return 100;
-        }
-        if (now >= end) {
-            return 0;
-        }
-
-        return (int) Math.round((end - now) * 100.0 / (end - start));
+        return (int) Math.round(capacityCount(activity.getId()) * 100.0 / recruitCount);
     }
 
     private Long toEpochMillis(LocalDateTime time) {
@@ -813,10 +830,10 @@ public class ActivityServiceImpl implements ActivityService {
     }
 
     private List<Long> resolveRequestTagIds(ActivityCreateRequest request) {
-        if (request.getTagId() != null) {
-            return List.of(request.getTagId());
+        if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
+            return request.getTagIds();
         }
-        return request.getTagIds();
+        return request.getTagId() == null ? List.of() : List.of(request.getTagId());
     }
 
     private List<String> resolveTagNames(List<Long> tagIds) {
@@ -831,6 +848,27 @@ public class ActivityServiceImpl implements ActivityService {
         return tagIds.stream()
                 .map(id -> tagById.get(id).getName())
                 .toList();
+    }
+
+    private List<String> resolveActivityTagNames(Activity activity) {
+        List<Long> tagIds = parseLongList(activity.getTagIdsJson());
+        if (tagIds.isEmpty() && activity.getTagId() != null) {
+            tagIds = List.of(activity.getTagId());
+        }
+        if (!tagIds.isEmpty()) {
+            Map<Long, Tag> tagById = tagRepository.findAllById(tagIds).stream()
+                    .collect(Collectors.toMap(Tag::getId, Function.identity()));
+            List<String> names = tagIds.stream()
+                    .map(tagById::get)
+                    .filter(tag -> tag != null && StringUtils.hasText(tag.getName()))
+                    .map(Tag::getName)
+                    .toList();
+            if (!names.isEmpty()) {
+                return names;
+            }
+        }
+
+        return parseStringList(activity.getTagsJson());
     }
 
     private List<Long> resolveSearchTagIds(List<String> tagNames) {
